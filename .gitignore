@@ -1,0 +1,41 @@
+# Dependencias
+/node_modules
+/.pnp
+.pnp.js
+
+# Entorno y variables secretas (NUNCA subir a GitHub)
+.env
+.env*.local
+.env.production
+.env.staging
+
+# Next.js Build Output
+/.next/
+/out/
+/build
+
+# TypeScript Build Cache
+*.tsbuildinfo
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Archivos de respaldo locales
+/storage/backups/*
+!/storage/backups/.gitkeep
+
+# Directorios temporales y de desarrollo
+tmp/
+scratch/
+.gemini/
+.agents/
+
+# Sistema Operativo y Editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

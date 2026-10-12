@@ -1,0 +1,23 @@
+# Archivos e historial excluidos de la imagen Docker
+Dockerfile
+docker-compose.yml
+README_DOCKER.md
+.dockerignore
+
+node_modules
+.next
+.git
+.gitignore
+.gemini
+.agents
+
+.env*.local
+.env.production
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+tmp
+scratch
+*.tsbuildinfo

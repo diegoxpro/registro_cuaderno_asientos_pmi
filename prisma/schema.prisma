@@ -1,0 +1,119 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  JEFE_DE_PROYECTO
+  ADMINISTRADOR
+  SUPERVISOR_DE_OBRA
+  PROYECTISTA
+  RESIDENTE
+}
+
+enum ProjectState {
+  ACTIVO
+  PAUSADO
+  CONCLUIDO
+}
+
+enum IncidenceType {
+  RIESGO
+  CONSULTA_TECNICA
+  OBSERVACION
+  INFORMATIVO
+  MODIFICACION_ESTRUCTURAL
+}
+
+model User {
+  id           String                  @id @default(uuid())
+  nombre       String
+  apellidos    String
+  dni          String                  @unique
+  cip          String?
+  email        String
+  telefono     String
+  modContrato  String?
+  usuario      String                  @unique
+  contrasena   String
+  perfilAcceso Role                    @default(RESIDENTE)
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  asignaciones UserProjectAssignment[]
+}
+
+model Project {
+  id               String                  @id @default(uuid())
+  cui              String                  @unique
+  nombre           String
+  nConvenio        String
+  modalidad        String                  @default("OxI LEY 29230")
+  fase             String                  @default("Ejecución Física")
+  entidadEjecutora String
+  residenteNombre  String?
+  residenteCIP     String?
+  supervisorNombre String?
+  supervisorCIP    String?
+  estado           ProjectState            @default(ACTIVO)
+  provincia        String                  @default("Chiclayo")
+  estadoObra       String                  @default("En Ejecución")
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  asientos         IncidenceEntry[]
+  asignaciones     UserProjectAssignment[]
+}
+
+model UserProjectAssignment {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+
+  @@unique([userId, projectId])
+}
+
+model IncidenceEntry {
+  id                 String           @id @default(uuid())
+  numeroCorrelativo  Int
+  proyectoId         String
+  proyecto           Project          @relation(fields: [proyectoId], references: [id], onDelete: Cascade)
+  tipoIncidencia     IncidenceType    @default(INFORMATIVO)
+  titulo             String
+  contenido          String           @db.Text
+  fechaHora          DateTime         @default(now())
+  autorNombre        String
+  autorCargo         String
+  autorCIP           String?
+  
+  esRespuestaDeId    String?
+  esRespuestaDe      IncidenceEntry?  @relation("HiloRespuestas", fields: [esRespuestaDeId], references: [id], onDelete: SetNull)
+  respuestas         IncidenceEntry[] @relation("HiloRespuestas")
+
+  estadoGestion      String           @default("Asiento Informativo (Sin acción requerida)")
+  plazoDiasRespuesta Int?
+  
+  adjuntos           Attachment[]
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@unique([proyectoId, numeroCorrelativo])
+}
+
+model Attachment {
+  id            String         @id @default(uuid())
+  asientoId     String
+  asiento       IncidenceEntry @relation(fields: [asientoId], references: [id], onDelete: Cascade)
+  nombreArchivo String
+  urlArchivo    String
+  tipo          String
+  createdAt     DateTime       @default(now())
+}
