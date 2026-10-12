@@ -45,29 +45,11 @@ interface UserAssignment {
 const DEFAULT_USERS: UserAssignment[] = [
   {
     userId: 'u-1',
-    nombre: 'María',
-    apellidos: 'Torres Ugarte',
-    dni: '12345678',
-    rol: 'Supervisor de obra',
-    assignedProjectIds: ['p-2548912', 'p-2419083'],
-    restrictVisibility: true,
-  },
-  {
-    userId: 'u-2',
-    nombre: 'Juan',
-    apellidos: 'Pérez Valdivia',
-    dni: '45678912',
-    rol: 'Residente',
-    assignedProjectIds: ['p-2548912'],
-    restrictVisibility: true,
-  },
-  {
-    userId: 'u-3',
     nombre: 'Carlos',
     apellidos: 'Mendoza Silva',
     dni: '70123456',
     rol: 'Administrador',
-    assignedProjectIds: ['p-2548912', 'p-2419083', 'p-2398124', 'p-2109482'],
+    assignedProjectIds: [],
     restrictVisibility: false,
   },
 ];

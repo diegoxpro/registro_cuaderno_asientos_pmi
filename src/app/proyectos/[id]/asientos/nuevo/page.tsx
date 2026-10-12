@@ -20,10 +20,28 @@ import {
   AlertTriangle,
   FileWarning
 } from 'lucide-react';
-import { INITIAL_PROJECTS, INITIAL_INCIDENCES, MockIncidenceEntry } from '@/lib/mockData';
+import { INITIAL_PROJECTS, INITIAL_INCIDENCES, MockIncidenceEntry, MockProject } from '@/lib/mockData';
 import Sidebar from '@/components/Sidebar';
 import { getStoredIncidenceTypes } from '@/components/IncidenceTypesModal';
 import { saveAttachment, makeIdbUrl } from '@/lib/attachmentStorage';
+
+const EMPTY_PROJECT: MockProject = {
+  id: '',
+  cui: '---',
+  nombre: 'Sin proyectos registrados',
+  nConvenio: '---',
+  modalidad: 'OxI LEY 29230',
+  fase: '---',
+  entidadEjecutora: '---',
+  residenteNombre: null,
+  residenteCIP: null,
+  supervisorNombre: null,
+  supervisorCIP: null,
+  estado: 'ACTIVO',
+  provincia: 'Lambayeque',
+  estadoObra: 'Sin proyectos',
+  asientosCount: 0,
+};
 
 // Extensiones prohibidas de scripts, ejecutable y sistema
 const RESTRICTED_EXTENSIONS = [
@@ -37,11 +55,13 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
   const { id } = use(params);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const project = INITIAL_PROJECTS.find((p) => p.id === id || p.cui === id) || INITIAL_PROJECTS[0];
+  const [project, setProject] = useState<MockProject>(() => {
+    return INITIAL_PROJECTS.find((p) => p.id === id || p.cui === id) || INITIAL_PROJECTS[0] || EMPTY_PROJECT;
+  });
 
   // Estado con la lista completa de incidencias (locales + estáticas)
   const [allIncidences, setAllIncidences] = useState<MockIncidenceEntry[]>(() => {
-    return INITIAL_INCIDENCES[project.id] || [];
+    return (project && INITIAL_INCIDENCES[project.id]) || [];
   });
 
   useEffect(() => {

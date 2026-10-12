@@ -34,13 +34,13 @@ export default function ReportePorAsientoPage() {
 
   // Estados de Proyectos y Asientos
   const [projects, setProjects] = useState<MockProject[]>(INITIAL_PROJECTS);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('p-2704014');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [availableIncidences, setAvailableIncidences] = useState<MockIncidenceEntry[]>([]);
   const [selectedIncidenceId, setSelectedIncidenceId] = useState<string>('');
 
   // Metadatos editables/configurables para el reporte
   const [actorType, setActorType] = useState<string>('Empresa Privada');
-  const [actorName, setActorName] = useState<string>('CONSORCIO FINANCISTA TUMBAS REALES');
+  const [actorName, setActorName] = useState<string>('');
 
   // Estado del Menú de Opciones y Modales
   const [isSettingsDropdownOpen, setIsSettingsDropdownOpen] = useState(false);
@@ -50,7 +50,7 @@ export default function ReportePorAsientoPage() {
   const [userRole, setUserRole] = useState('ADMINISTRADOR');
 
   // Estado de Generación
-  const [isGenerated, setIsGenerated] = useState<boolean>(true);
+  const [isGenerated, setIsGenerated] = useState<boolean>(false);
   const [generatedProject, setGeneratedProject] = useState<MockProject | null>(null);
   const [generatedIncidence, setGeneratedIncidence] = useState<MockIncidenceEntry | null>(null);
   const [generatedActorType, setGeneratedActorType] = useState<string>('Empresa Privada');

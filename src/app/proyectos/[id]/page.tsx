@@ -53,16 +53,34 @@ import NotificationsDropdown from '@/components/NotificationsDropdown';
 import RequestSeatEditModal from '@/components/RequestSeatEditModal';
 import EditSeatModal from '@/components/EditSeatModal';
 
+const EMPTY_PROJECT: MockProject = {
+  id: '',
+  cui: '---',
+  nombre: 'Sin proyectos registrados',
+  nConvenio: '---',
+  modalidad: 'OxI LEY 29230',
+  fase: '---',
+  entidadEjecutora: '---',
+  residenteNombre: null,
+  residenteCIP: null,
+  supervisorNombre: null,
+  supervisorCIP: null,
+  estado: 'ACTIVO',
+  provincia: 'Lambayeque',
+  estadoObra: 'Sin proyectos',
+  asientosCount: 0,
+};
+
 export default function ProyectoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
 
   const [allProjects, setAllProjects] = useState<MockProject[]>(INITIAL_PROJECTS);
   const [currentProject, setCurrentProject] = useState<MockProject>(() => {
-    return INITIAL_PROJECTS.find((p) => p.id === id || p.cui === id) || INITIAL_PROJECTS[0];
+    return INITIAL_PROJECTS.find((p) => p.id === id || p.cui === id) || INITIAL_PROJECTS[0] || EMPTY_PROJECT;
   });
 
-  const initialIncidencesList = INITIAL_INCIDENCES[currentProject.id] || [];
+  const initialIncidencesList = (currentProject && INITIAL_INCIDENCES[currentProject.id]) || [];
 
   const [incidences, setIncidences] = useState<MockIncidenceEntry[]>(initialIncidencesList);
   const [filterTipo, setFilterTipo] = useState('TODOS');

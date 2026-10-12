@@ -56,7 +56,7 @@ export default function StoryboardPage() {
 
   // Estados de Datos de Proyectos e Hitos
   const [projects, setProjects] = useState<MockProject[]>(INITIAL_PROJECTS);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('p-2419083');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [milestones, setMilestones] = useState<StoryboardMilestone[]>(INITIAL_STORYBOARD_MILESTONES);
   const [userRole, setUserRole] = useState('ADMINISTRADOR');
 
@@ -100,6 +100,7 @@ export default function StoryboardPage() {
           const parsed = JSON.parse(savedProjects);
           if (Array.isArray(parsed) && parsed.length > 0) {
             setProjects(parsed);
+            setSelectedProjectId((prev) => prev || parsed[0].id);
           }
         } catch (e) {
           console.error('Error cargando proyectos:', e);
@@ -110,7 +111,7 @@ export default function StoryboardPage() {
       if (savedMilestones) {
         try {
           const parsed = JSON.parse(savedMilestones);
-          if (Array.isArray(parsed) && parsed.length > 0) {
+          if (Array.isArray(parsed)) {
             const sanitized = parsed.map((m: StoryboardMilestone) => ({
               ...m,
               adjuntos: (m.adjuntos || []).map((att) => {
@@ -123,18 +124,7 @@ export default function StoryboardPage() {
                 return { ...att, url };
               }),
             }));
-
-            // Asegurar que si faltan los hitos de p-2419083, se agreguen automáticamente
-            const has2419 = sanitized.some((m: StoryboardMilestone) => m.proyectoId === 'p-2419083');
-            if (!has2419) {
-              const default2419 = INITIAL_STORYBOARD_MILESTONES.filter((m) => m.proyectoId === 'p-2419083');
-              const merged = [...default2419, ...sanitized];
-              setMilestones(merged);
-              localStorage.setItem('app_storyboard_milestones', JSON.stringify(merged));
-            } else {
-              setMilestones(sanitized);
-              localStorage.setItem('app_storyboard_milestones', JSON.stringify(sanitized));
-            }
+            setMilestones(sanitized);
           }
         } catch (e) {
           console.error('Error cargando hitos:', e);

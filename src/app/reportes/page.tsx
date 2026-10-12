@@ -37,12 +37,30 @@ import IncidenceTypesModal from '@/components/IncidenceTypesModal';
 import DatabaseBackupModal from '@/components/DatabaseBackupModal';
 import { INITIAL_PROJECTS, INITIAL_INCIDENCES, MockProject, MockIncidenceEntry } from '@/lib/mockData';
 
+const EMPTY_PROJECT: MockProject = {
+  id: '',
+  cui: '---',
+  nombre: 'Sin proyectos registrados',
+  nConvenio: '---',
+  modalidad: 'OxI LEY 29230',
+  fase: '---',
+  entidadEjecutora: '---',
+  residenteNombre: null,
+  residenteCIP: null,
+  supervisorNombre: null,
+  supervisorCIP: null,
+  estado: 'ACTIVO',
+  provincia: 'Lambayeque',
+  estadoObra: 'Sin proyectos',
+  asientosCount: 0,
+};
+
 export default function ReportsPage() {
   const router = useRouter();
 
   // Estados de Datos
   const [projects, setProjects] = useState<MockProject[]>(INITIAL_PROJECTS);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('p-2548912');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [userRole, setUserRole] = useState('ADMINISTRADOR');
 
   // Estados del Menú de Opciones y Modales
@@ -87,7 +105,7 @@ export default function ReportsPage() {
     }
   }, []);
 
-  const selectedProject = projects.find((p) => p.id === selectedProjectId) || projects[0];
+  const selectedProject = projects.find((p) => p.id === selectedProjectId) || projects[0] || EMPTY_PROJECT;
 
   // Generar Reporte Oficial
   const handleGenerateReport = () => {
