@@ -60,14 +60,28 @@ h1, h2, h3, h4, h5, h6 {
   background: #91000A;
 }
 
-/* Reglas oficiales de Impresión A4 */
+/* Reglas oficiales de Impresión A4 (Sin cabeceras/pies de navegador y fondo blanco) */
 @page {
   size: A4 portrait;
-  margin: 10mm 12mm 10mm 12mm;
+  margin: 0;
 }
 
 @media print {
+  /* Desactivar completamente barras de scroll en todos los navegadores para evitar franjas grises */
+  *, *::before, *::after {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+  ::-webkit-scrollbar,
+  *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+  }
+
   html, body {
+    background: #ffffff !important;
     background-color: #ffffff !important;
     color: #000000 !important;
     font-size: 11pt !important;
@@ -75,20 +89,67 @@ h1, h2, h3, h4, h5, h6 {
     print-color-adjust: exact !important;
     margin: 0 !important;
     padding: 0 !important;
-  }
-  header, aside, nav, footer, .no-print {
-    display: none !important;
-  }
-  .print-area {
-    display: block !important;
     width: 100% !important;
-    max-width: 100% !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+  }
+
+  /* Ocultar barras de navegación, botones y elementos no imprimibles */
+  header, aside, nav, footer, .no-print, [role="dialog"], button {
+    display: none !important;
+    visibility: hidden !important;
+    border: none !important;
+  }
+
+  /* Anular desbordamientos en todos los divs y contenedores para que no aparezcan canales de scroll */
+  div, main, section, article {
+    overflow: visible !important;
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+  }
+
+  /* Anular fondos grises, sombras, bordes y márgenes de los contenedores envolventes externos */
+  #__next,
+  body > div,
+  div.min-h-screen,
+  main,
+  .overflow-y-auto,
+  .overflow-hidden {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
     margin: 0 !important;
     padding: 0 !important;
-    box-shadow: none !important;
     border: none !important;
-    border-radius: 0 !important;
+    border-right: none !important;
+    box-shadow: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    overflow: visible !important;
   }
+
+  /* Ficha imprimible: ocupa la hoja A4 con márgenes limpios y fondo 100% blanco */
+  .print-area {
+    display: block !important;
+    position: relative !important;
+    width: 210mm !important;
+    max-width: 210mm !important;
+    min-height: 297mm !important;
+    box-sizing: border-box !important;
+    margin: 0 auto !important;
+    padding: 18mm 20mm 18mm 20mm !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    border: none !important;
+    border-right: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    page-break-after: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
   .print-break-inside {
     break-inside: avoid !important;
     page-break-inside: avoid !important;

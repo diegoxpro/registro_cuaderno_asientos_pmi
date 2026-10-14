@@ -55,12 +55,32 @@ export default function NotificationsDropdown() {
       const role = localStorage.getItem('user_role') || 'ADMINISTRADOR';
       setUserRole(role);
 
+      const savedProjects = localStorage.getItem('app_projects_list');
+      const validProjectIds = new Set<string>();
+      if (savedProjects) {
+        try {
+          const parsedProj = JSON.parse(savedProjects);
+          if (Array.isArray(parsedProj)) {
+            parsedProj.forEach((p: any) => {
+              if (p.id) validProjectIds.add(p.id);
+              if (p.cui) validProjectIds.add(p.cui);
+            });
+          }
+        } catch (e) {}
+      }
+
       const savedStr = localStorage.getItem('app_notifications_list');
       if (savedStr) {
         try {
           const parsed = JSON.parse(savedStr);
           if (Array.isArray(parsed)) {
-            setNotifications(parsed);
+            const valid = parsed.filter(
+              (n: any) => n.proyectoId && validProjectIds.has(n.proyectoId) && !n.id.startsWith('notif-10')
+            );
+            if (valid.length !== parsed.length) {
+              localStorage.setItem('app_notifications_list', JSON.stringify(valid));
+            }
+            setNotifications(valid);
           } else {
             setNotifications([]);
           }

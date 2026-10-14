@@ -75,7 +75,44 @@ export default function CarteraProyectosPage() {
         try {
           const parsed = JSON.parse(savedProjects);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            baseProjects = parsed;
+            let wasUpdated = false;
+            baseProjects = parsed.map((p: any) => {
+              const is2704014 = p.cui === '2704014' || (p.nombre && String(p.nombre).toUpperCase().includes('TUMBAS REALES'));
+              const rawMonto = p.montoInversion ?? p.monto ?? p.presupuesto ?? p.inversion;
+              const rawPlazo = p.plazoDias ?? p.plazo ?? p.plazoContractual ?? p.dias;
+              const rawFecha = p.fechaInicio ?? p.fechaInicioEstimada ?? p.fecha;
+              const rawLoc = p.localidad ?? p.centroPoblado ?? p.ubicacion;
+
+              if (is2704014) {
+                const needsMonto = !rawMonto || String(rawMonto).trim() === '' || String(rawMonto) === '0' || String(rawMonto) === '0.00';
+                const needsPlazo = !rawPlazo || String(rawPlazo).trim() === '';
+                const needsFecha = !rawFecha || String(rawFecha).trim() === '';
+                const needsLoc = !rawLoc || String(rawLoc).trim() === '';
+                const needsDist = !p.distrito || p.distrito === 'Chiclayo';
+
+                if (needsMonto || needsPlazo || needsFecha || needsLoc || needsDist) {
+                  wasUpdated = true;
+                  return {
+                    ...p,
+                    montoInversion: needsMonto ? '91,720,000.00' : rawMonto,
+                    monto: needsMonto ? '91,720,000.00' : rawMonto,
+                    plazoDias: needsPlazo ? '540' : rawPlazo,
+                    plazo: needsPlazo ? '540' : rawPlazo,
+                    fechaInicio: needsFecha ? '2026-03-01' : rawFecha,
+                    provincia: p.provincia || 'Lambayeque',
+                    distrito: needsDist ? 'Lambayeque' : p.distrito,
+                    localidad: needsLoc ? 'Museo Tumbas Reales de Sipán' : rawLoc,
+                    nConvenio: p.nConvenio || '045-003',
+                    entidadEjecutora: p.entidadEjecutora || '-INARCO-SIPAN',
+                    entidadSupervisora: p.entidadSupervisora || '-INARCO-SIPAN',
+                  };
+                }
+              }
+              return p;
+            });
+            if (wasUpdated) {
+              localStorage.setItem('app_projects_list', JSON.stringify(baseProjects));
+            }
           }
         } catch (e) {
           console.error('Error al leer app_projects_list de localStorage:', e);
@@ -649,7 +686,22 @@ export default function CarteraProyectosPage() {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setEditingProject(p);
+                                  const is2704014 = p.cui === '2704014' || (p.nombre && String(p.nombre).toUpperCase().includes('TUMBAS REALES'));
+                                  const rawMonto = p.montoInversion ?? (p as any).monto ?? (p as any).presupuesto ?? (p as any).inversion;
+                                  const rawPlazo = p.plazoDias ?? (p as any).plazo ?? (p as any).plazoContractual ?? (p as any).dias;
+                                  const rawFecha = p.fechaInicio ?? (p as any).fechaInicioEstimada ?? (p as any).fecha;
+                                  const rawLoc = p.localidad ?? (p as any).centroPoblado ?? (p as any).ubicacion;
+
+                                  const enrichedP: MockProject = {
+                                    ...p,
+                                    montoInversion: rawMonto && String(rawMonto).trim() !== '' && String(rawMonto) !== '0.00' ? rawMonto : (is2704014 ? '91,720,000.00' : p.montoInversion),
+                                    plazoDias: rawPlazo && String(rawPlazo).trim() !== '' ? rawPlazo : (is2704014 ? '540' : p.plazoDias),
+                                    fechaInicio: rawFecha && String(rawFecha).trim() !== '' ? rawFecha : (is2704014 ? '2026-03-01' : p.fechaInicio),
+                                    provincia: p.provincia || (is2704014 ? 'Lambayeque' : 'Chiclayo'),
+                                    distrito: p.distrito || (is2704014 || p.provincia === 'Lambayeque' ? 'Lambayeque' : 'Chiclayo'),
+                                    localidad: rawLoc && String(rawLoc).trim() !== '' ? rawLoc : (is2704014 ? 'Museo Tumbas Reales de Sipán' : p.localidad),
+                                  };
+                                  setEditingProject(enrichedP);
                                 }}
                                 className="p-2 bg-white hover:bg-red-50 text-[#91000A] border border-[#91000A]/30 rounded-lg shadow-sm transition-all hover:scale-110"
                                 title="Editar datos del proyecto, archivar o reasignar Residente/Supervisor"
@@ -724,19 +776,23 @@ export default function CarteraProyectosPage() {
         </div>
       </div>
 
-      {/* Modal de Registro de Nuevo Proyecto */}
+      {/* Modal de Registro y Edición de Proyecto */}
       <NewProjectModal
-        isOpen={isNewProjectModalOpen}
-        onClose={() => setIsNewProjectModalOpen(false)}
-        onSaveProject={handleAddNewProject}
-      />
-
-      {/* Modal de Edición, Reasignación y Archivamiento de Proyecto */}
-      <EditProjectModal
-        isOpen={Boolean(editingProject)}
-        onClose={() => setEditingProject(null)}
-        project={editingProject}
-        onSaveProject={handleUpdateProject}
+        isOpen={isNewProjectModalOpen || Boolean(editingProject)}
+        projectToEdit={editingProject}
+        onClose={() => {
+          setIsNewProjectModalOpen(false);
+          setEditingProject(null);
+        }}
+        onSaveProject={(savedProj) => {
+          if (editingProject) {
+            handleUpdateProject(savedProj);
+          } else {
+            handleAddNewProject(savedProj);
+          }
+          setIsNewProjectModalOpen(false);
+          setEditingProject(null);
+        }}
       />
 
       {/* Modal de Carga Masiva desde Excel / CSV */}

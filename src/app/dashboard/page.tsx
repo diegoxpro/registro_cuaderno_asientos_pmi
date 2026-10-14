@@ -78,7 +78,15 @@ export default function DashboardPage() {
         try {
           const parsed = JSON.parse(savedNotifStr);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setNotifications(parsed);
+            const currentProjList = savedProjects ? JSON.parse(savedProjects) : [];
+            const validIds = new Set(currentProjList.map((p: any) => p.id));
+            const filteredNotifs = parsed.filter(
+              (n: any) => n.proyectoId && validIds.has(n.proyectoId) && !n.id.startsWith('notif-10')
+            );
+            if (filteredNotifs.length !== parsed.length) {
+              localStorage.setItem('app_notifications_list', JSON.stringify(filteredNotifs));
+            }
+            setNotifications(filteredNotifs);
           } else {
             setNotifications([]);
           }
@@ -86,6 +94,8 @@ export default function DashboardPage() {
           console.error(e);
           setNotifications([]);
         }
+      } else {
+        setNotifications([]);
       }
     }
   }, []);

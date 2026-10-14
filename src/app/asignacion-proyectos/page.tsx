@@ -130,6 +130,15 @@ export default function AsignacionProyectosPage() {
     }
 
     // 3. Mapear cada usuario del registro a la estructura de asignación
+    const savedProjects = localStorage.getItem('app_projects_list');
+    let currentProjects = INITIAL_PROJECTS;
+    if (savedProjects) {
+      try {
+        const parsed = JSON.parse(savedProjects);
+        if (Array.isArray(parsed) && parsed.length > 0) currentProjects = parsed;
+      } catch (e) {}
+    }
+
     const mergedAssignments: UserAssignment[] = registeredUsers.map((regUser) => {
       const uId = regUser.id || `u-${regUser.dni}`;
       const prev = storedAssignmentsMap[uId] || storedAssignmentsMap[regUser.dni];
@@ -149,7 +158,7 @@ export default function AsignacionProyectosPage() {
         apellidos: regUser.apellidos,
         dni: regUser.dni,
         rol: rolText,
-        assignedProjectIds: prev ? prev.assignedProjectIds : (isAdmin ? projects.map((p) => p.id) : []),
+        assignedProjectIds: prev ? prev.assignedProjectIds : (isAdmin ? currentProjects.map((p) => p.id) : []),
         restrictVisibility: prev ? prev.restrictVisibility : !isAdmin,
       };
     });
@@ -163,7 +172,7 @@ export default function AsignacionProyectosPage() {
         return exists ? currentId : mergedAssignments[0].userId;
       });
     }
-  }, [projects]);
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {

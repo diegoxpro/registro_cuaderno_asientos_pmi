@@ -6,6 +6,11 @@ export const metadata: Metadata = {
   title: "Cuaderno de Incidencias Digital — GORE Lambayeque (Obras por Impuestos)",
   description: "Plataforma institucional del Gobierno Regional de Lambayeque para la gestión de proyectos de inversión Ley N° 29230 y registro digital de asientos de obra con carácter de declaración jurada.",
   keywords: ["GORE Lambayeque", "Cuaderno de Incidencias", "Obras por Impuestos", "Ley 29230", "Asientos de Obra", "Residente", "Supervisor"],
+  icons: {
+    icon: "/img/logo.png",
+    shortcut: "/img/logo.png",
+    apple: "/img/logo.png",
+  },
 };
 
 export default function RootLayout({
@@ -15,6 +20,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
+      <head>
+        <link rel="icon" href="/img/logo.png" type="image/png" />
+        <link rel="shortcut icon" href="/img/logo.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/img/logo.png" />
+      </head>
       <body className="min-h-screen bg-[#F9F9F9] text-[#1A1C1C] antialiased">
         <CleanStorageInitializer />
         {children}

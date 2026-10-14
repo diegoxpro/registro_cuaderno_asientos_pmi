@@ -189,10 +189,15 @@ export default function ReportePorAsientoPage() {
     }
   };
 
-  // Imprimir (A4)
+  // Imprimir (A4 sin encabezados ni pie de navegador)
   const handlePrint = () => {
     if (typeof window !== 'undefined') {
+      const prevTitle = document.title;
+      document.title = '';
       window.print();
+      setTimeout(() => {
+        document.title = prevTitle;
+      }, 1000);
     }
   };
 
@@ -225,24 +230,131 @@ export default function ReportePorAsientoPage() {
     }
   };
 
-  // Formatear texto de Descripción: mantener los asteriscos o viñetas
+  // Formatear texto de Descripción: flujo continuo por párrafo y soporte de viñetas
   const renderDescripcionLines = (texto?: string) => {
     if (!texto) return null;
-    const lines = texto.split('\n').map(l => l.trim()).filter(Boolean);
+
+    // Normalizar saltos de línea CRLF a LF
+    const normalized = texto.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+    // Dividir en párrafos basados en saltos dobles de línea
+    const rawParagraphs = normalized.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+    const paragraphs = rawParagraphs.length > 0 ? rawParagraphs : [normalized.trim()];
 
     return (
-      <div className="space-y-1">
-        {lines.map((line, idx) => (
-          <p key={idx} className="leading-relaxed">
-            {line}
-          </p>
-        ))}
+      <div className="space-y-3">
+        {paragraphs.map((para, idx) => {
+          const lines = para.split('\n').map(l => l.trim()).filter(Boolean);
+          // Si es una lista con viñetas o números, respetar cada ítem
+          const isBulletList = lines.length > 1 && lines.every(l => /^([-*•]|\d+[.)])/.test(l));
+
+          if (isBulletList) {
+            return (
+              <div key={idx} className="space-y-1">
+                {lines.map((l, lIdx) => (
+                  <p key={lIdx} className="leading-relaxed text-justify">
+                    {l}
+                  </p>
+                ))}
+              </div>
+            );
+          }
+
+          // Unir líneas partidas dentro de un mismo párrafo para flujo natural y justificación
+          const cleanParagraph = lines.join(' ');
+          return (
+            <p key={idx} className="leading-relaxed text-justify">
+              {cleanParagraph}
+            </p>
+          );
+        })}
       </div>
     );
   };
 
   return (
     <div className="min-h-screen bg-[#F9F9F9] flex flex-col text-[#1A1C1C]">
+      {/* Estilos específicos de impresión A4 limpia */}
+      <style dangerouslySetInnerHTML={{
+        __html: `
+        @page {
+          size: A4 portrait;
+          margin: 0;
+        }
+        @media print {
+          /* Desactivar completamente barras de scroll en todos los navegadores para evitar franjas grises */
+          *, *::before, *::after {
+            scrollbar-width: none !important;
+            -ms-overflow-style: none !important;
+          }
+          ::-webkit-scrollbar,
+          *::-webkit-scrollbar {
+            display: none !important;
+            width: 0 !important;
+            height: 0 !important;
+            background: transparent !important;
+          }
+
+          html, body {
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            min-height: 100% !important;
+            overflow: visible !important;
+            overflow-x: visible !important;
+            overflow-y: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          header, aside, nav, footer, .no-print, [role="dialog"], button {
+            display: none !important;
+            visibility: hidden !important;
+            border: none !important;
+          }
+
+          div, main, section, article {
+            overflow: visible !important;
+            overflow-x: visible !important;
+            overflow-y: visible !important;
+          }
+
+          #__next, body > div, div.min-h-screen, main, .overflow-y-auto, .overflow-hidden {
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+            border-right: none !important;
+            max-width: 100% !important;
+            width: 100% !important;
+            overflow: visible !important;
+          }
+
+          .print-area {
+            display: block !important;
+            position: relative !important;
+            width: 210mm !important;
+            max-width: 210mm !important;
+            min-height: 297mm !important;
+            padding: 16mm 20mm 16mm 20mm !important;
+            margin: 0 auto !important;
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            border: none !important;
+            border-right: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            box-sizing: border-box !important;
+            page-break-after: avoid !important;
+            page-break-inside: avoid !important;
+          }
+        }
+      `}} />
 
       {/* Header Corporativo GORE Lambayeque */}
       <header className="bg-[#91000A] text-white shadow-md no-print">
@@ -335,12 +447,12 @@ export default function ReportePorAsientoPage() {
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden print:overflow-visible print:block print:w-full">
         <Sidebar />
 
-        <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        <div className="flex-1 flex flex-col min-w-0 overflow-y-auto print:overflow-visible print:block print:w-full">
           {/* Subheader Banner */}
-          <div className="bg-white border-b border-[#E2E2E2] py-4 px-6 sm:px-8 no-print">
+          <div className="bg-white border-b border-[#FFFFF] py-4 px-6 sm:px-8 no-print">
             <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <span className="text-xs text-[#91000A] font-bold font-mono uppercase tracking-wider flex items-center space-x-1.5">
@@ -365,7 +477,7 @@ export default function ReportePorAsientoPage() {
           </div>
 
           {/* Pestañas de Navegación de Reportes */}
-          <div className="bg-white border-b border-[#E2E2E2] px-6 sm:px-8 no-print">
+          <div className="bg-white border-b border-[#FFFF] px-6 sm:px-8 no-print">
             <div className="max-w-7xl mx-auto flex space-x-6">
               <Link
                 href="/reportes"
@@ -385,9 +497,9 @@ export default function ReportePorAsientoPage() {
           </div>
 
           {/* Contenedor Principal */}
-          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 w-full flex-1">
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 w-full flex-1 print:p-0 print:m-0 print:max-w-none print:w-full">
             {/* PANEL DE SELECCIÓN Y CONFIGURACIÓN */}
-            <div className="bg-white rounded-xl border border-[#E2E2E2] shadow-sm overflow-hidden no-print">
+            <div className="bg-white rounded-xl border border-[#FFF] shadow-sm overflow-hidden no-print">
               <div className="bg-[#91000A] text-white px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center space-x-2.5">
                   <FileText className="w-5 h-5 text-yellow-300" />
@@ -487,11 +599,10 @@ export default function ReportePorAsientoPage() {
                     type="button"
                     onClick={handleGenerate}
                     disabled={availableIncidences.length === 0}
-                    className={`px-6 py-2.5 text-xs font-bold rounded-lg shadow-md flex items-center space-x-2 transition-all cursor-pointer ${
-                      availableIncidences.length > 0
-                        ? 'bg-[#91000A] hover:bg-[#780008] text-white'
-                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    }`}
+                    className={`px-6 py-2.5 text-xs font-bold rounded-lg shadow-md flex items-center space-x-2 transition-all cursor-pointer ${availableIncidences.length > 0
+                      ? 'bg-[#91000A] hover:bg-[#780008] text-white'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      }`}
                   >
                     <FileText className="w-4 h-4" />
                     <span>Generar Reporte del Asiento</span>
@@ -502,9 +613,9 @@ export default function ReportePorAsientoPage() {
 
             {/* VISTA PREVIA Y FICHA IMPRIMIBLE DEL REPORTE */}
             {isGenerated && generatedProject && generatedIncidence && (
-              <div className="space-y-4">
+              <div className="space-y-4 print:space-y-0 print:m-0 print:p-0">
                 {/* Barra de Acciones / Herramientas */}
-                <div className="bg-white p-4 rounded-xl border border-[#E2E2E2] shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3 no-print">
+                <div className="bg-white p-4 rounded-xl border border-[#FFFF] shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3 no-print">
                   <div className="flex items-center space-x-2 text-emerald-800 text-xs font-bold">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     <span>Reporte del Asiento N° {generatedIncidence.numeroCorrelativo} generado satisfactoriamente</span>
@@ -523,71 +634,69 @@ export default function ReportePorAsientoPage() {
                   </div>
                 </div>
 
-                {/* DOCUMENTO OFICIAL FORMAL (IDÉNTICO A LA IMAGEN) */}
-                <div className="print-area bg-white p-8 sm:p-14 rounded-xl border border-gray-300 shadow-xl max-w-4xl mx-auto text-black font-sans">
-                  {/* Encabezado: Logo circular y Título */}
-                  <div className="relative mb-6 pt-2">
-                    {/* Sello circular con logo a la izquierda */}
-                    <div className="sm:absolute sm:left-0 sm:top-0 mb-4 sm:mb-0 flex sm:block justify-center">
-                      <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full border-[2.5px] border-[#91000A] p-1.5 flex flex-col items-center justify-center bg-white shadow-sm">
-                        <img
-                          src="/img/logo.png"
-                          alt="Escudo GORE Lambayeque"
-                          className="w-12 h-12 sm:w-14 sm:h-14 object-contain"
-                        />
-                        <span className="text-[7px] font-extrabold text-[#91000A] text-center leading-tight tracking-tighter mt-1 uppercase font-display">
-                          Gobierno Regional<br />Lambayeque
-                        </span>
-                      </div>
+                {/* DOCUMENTO OFICIAL FORMAL (IDÉNTICO A LA IMAGEN 2) */}
+                <div className="print-area bg-white p-6 sm:p-12 rounded-xl border border-gray-300 shadow-xl max-w-4xl mx-auto text-black font-sans print:border-none print:shadow-none print:rounded-none">
+                  {/* Encabezado: Logo circular a la izquierda, título y metadatos */}
+                  <div className="relative mb-5 pt-1 min-h-[120px]">
+                    {/* Sello circular con logo a la izquierda (fijo tanto en pantalla como en impresión A4) */}
+                    <div className="absolute left-0 top-0 w-28 h-28 rounded-full border-[2.5px] border-[#91000A] p-1.5 flex flex-col items-center justify-center bg-white shadow-sm">
+                      <img
+                        src="/img/logo.png"
+                        alt="Escudo GORE Lambayeque"
+                        className="w-14 h-14 object-contain"
+                      />
+                      <span className="text-[7.5px] font-extrabold text-[#91000A] text-center leading-tight tracking-tighter mt-1 uppercase font-display">
+                        Gobierno Regional<br />Lambayeque
+                      </span>
                     </div>
 
-                    {/* Título centrado */}
-                    <div className="text-center sm:pl-28 pt-2">
-                      <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-black">
+                    {/* Título centrado respecto al documento */}
+                    <div className="text-center pl-32 pt-1 mb-5">
+                      <h1 className="text-2xl font-bold tracking-tight text-black">
                         Asiento del Cuaderno de Incidencias
                       </h1>
                     </div>
-                  </div>
 
-                  {/* Bloque de Metadatos de Cabecera */}
-                  <div className="space-y-2 text-[13px] sm:text-[14px] leading-snug sm:pl-28 mt-4 sm:mt-6">
-                    {/* Entidad Pública */}
-                    <div className="flex items-baseline">
-                      <div className="w-44 shrink-0 text-right pr-3 font-normal text-black">
-                        Entidad Pública:
+                    {/* Bloque de Metadatos de Cabecera con sangría alineada al logo */}
+                    <div className="space-y-2 text-[13.5px] leading-snug pl-32">
+                      {/* Entidad Pública */}
+                      <div className="flex items-baseline">
+                        <div className="w-44 shrink-0 text-right pr-4 font-normal text-black">
+                          Entidad Pública:
+                        </div>
+                        <div className="flex-1 font-normal text-black">
+                          Gobierno Regional Lambayeque
+                        </div>
                       </div>
-                      <div className="flex-1 font-normal text-black">
-                        Gobierno Regional Lambayeque
-                      </div>
-                    </div>
 
-                    {/* Proyecto de Inversión */}
-                    <div className="flex items-baseline">
-                      <div className="w-44 shrink-0 text-right pr-3 font-normal text-black">
-                        Proyecto de Inversión:
+                      {/* Proyecto de Inversión */}
+                      <div className="flex items-baseline">
+                        <div className="w-44 shrink-0 text-right pr-4 font-normal text-black">
+                          Proyecto de Inversión:
+                        </div>
+                        <div className="flex-1 font-normal text-black uppercase">
+                          “{generatedProject.nombre}”, CUI N° {generatedProject.cui}.
+                        </div>
                       </div>
-                      <div className="flex-1 font-normal text-black uppercase">
-                        “{generatedProject.nombre}”, CUI N° {generatedProject.cui}.
-                      </div>
-                    </div>
 
-                    {/* Actor */}
-                    <div className="flex items-baseline">
-                      <div className="w-44 shrink-0 text-right pr-3 font-normal text-black">
-                        Actor:
+                      {/* Actor */}
+                      <div className="flex items-baseline">
+                        <div className="w-44 shrink-0 text-right pr-4 font-normal text-black">
+                          Actor:
+                        </div>
+                        <div className="flex-1 font-normal text-black">
+                          {generatedActorType}
+                        </div>
                       </div>
-                      <div className="flex-1 font-normal text-black">
-                        {generatedActorType}
-                      </div>
-                    </div>
 
-                    {/* Nombre */}
-                    <div className="flex items-baseline">
-                      <div className="w-44 shrink-0 text-right pr-3 font-normal text-black">
-                        Nombre:
-                      </div>
-                      <div className="flex-1 font-normal text-black uppercase">
-                        {generatedActorName}
+                      {/* Nombre */}
+                      <div className="flex items-baseline">
+                        <div className="w-44 shrink-0 text-right pr-4 font-normal text-black">
+                          Nombre:
+                        </div>
+                        <div className="flex-1 font-normal text-black uppercase">
+                          {generatedActorName}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -596,10 +705,10 @@ export default function ReportePorAsientoPage() {
                   <div className="border-t-[2.5px] border-black my-6"></div>
 
                   {/* CUERPO DEL ASIENTO */}
-                  <div className="space-y-2.5 text-[13px] sm:text-[14px] leading-snug">
+                  <div className="space-y-3 text-[13.5px] leading-snug">
                     {/* Número de Asiento */}
                     <div className="flex items-baseline">
-                      <div className="w-44 shrink-0 text-right pr-3 font-normal text-black">
+                      <div className="w-44 shrink-0 text-right pr-4 font-normal text-black">
                         Número de Asiento:
                       </div>
                       <div className="flex-1 font-normal text-black">
@@ -609,7 +718,7 @@ export default function ReportePorAsientoPage() {
 
                     {/* Fecha y Hora */}
                     <div className="flex items-baseline">
-                      <div className="w-44 shrink-0 text-right pr-3 font-normal text-black">
+                      <div className="w-44 shrink-0 text-right pr-4 font-normal text-black">
                         Fecha y Hora:
                       </div>
                       <div className="flex-1 font-normal text-black">
@@ -619,7 +728,7 @@ export default function ReportePorAsientoPage() {
 
                     {/* Usuario */}
                     <div className="flex items-baseline">
-                      <div className="w-44 shrink-0 text-right pr-3 font-normal text-black">
+                      <div className="w-44 shrink-0 text-right pr-4 font-normal text-black">
                         Usuario:
                       </div>
                       <div className="flex-1 font-normal text-black uppercase">
@@ -629,7 +738,7 @@ export default function ReportePorAsientoPage() {
 
                     {/* Rol */}
                     <div className="flex items-baseline">
-                      <div className="w-44 shrink-0 text-right pr-3 font-normal text-black">
+                      <div className="w-44 shrink-0 text-right pr-4 font-normal text-black">
                         Rol:
                       </div>
                       <div className="flex-1 font-normal text-black uppercase">
@@ -639,7 +748,7 @@ export default function ReportePorAsientoPage() {
 
                     {/* Título */}
                     <div className="flex items-baseline">
-                      <div className="w-44 shrink-0 text-right pr-3 font-normal text-black">
+                      <div className="w-44 shrink-0 text-right pr-4 font-normal text-black">
                         Título:
                       </div>
                       <div className="flex-1 font-normal text-black uppercase">
@@ -649,35 +758,24 @@ export default function ReportePorAsientoPage() {
 
                     {/* Descripción */}
                     <div className="flex items-baseline">
-                      <div className="w-44 shrink-0 text-right pr-3 font-normal text-black">
+                      <div className="w-44 shrink-0 text-right pr-4 font-normal text-black">
                         Descripción:
                       </div>
-                      <div className="flex-1 font-normal text-black text-justify">
+                      <div className="flex-1 font-normal text-black">
                         {renderDescripcionLines(generatedIncidence.contenido)}
                       </div>
                     </div>
 
                     {/* Archivos Anexos */}
                     <div className="flex items-baseline pt-2">
-                      <div className="w-44 shrink-0 text-right pr-3 font-normal text-black">
+                      <div className="w-44 shrink-0 text-right pr-4 font-normal text-black">
                         Archivos Anexos:
                       </div>
                       <div className="flex-1 space-y-1 text-black">
                         {generatedIncidence.adjuntos && generatedIncidence.adjuntos.length > 0 ? (
                           generatedIncidence.adjuntos.map((adj) => (
                             <div key={adj.id} className="flex items-center space-x-2">
-                              {adj.urlArchivo && adj.urlArchivo !== '#' ? (
-                                <a
-                                  href={adj.urlArchivo}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-black hover:underline cursor-pointer flex items-center space-x-1"
-                                >
-                                  <span>{adj.nombreArchivo}</span>
-                                </a>
-                              ) : (
-                                <span>{adj.nombreArchivo}</span>
-                              )}
+                              <span>{adj.nombreArchivo}</span>
                             </div>
                           ))
                         ) : (

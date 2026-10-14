@@ -100,7 +100,7 @@ export default function Sidebar({ collapsed: externalCollapsed, onToggleCollapse
   return (
     <>
       <aside
-        className={`bg-white border-r border-[#E2E2E2] flex flex-col justify-between transition-all duration-300 z-30 shrink-0 select-none ${
+        className={`bg-white border-r border-[#E2E2E2] no-print print:hidden print:border-none flex flex-col justify-between transition-all duration-300 z-30 shrink-0 select-none ${
           isCollapsed ? 'w-16' : 'w-64'
         }`}
       >

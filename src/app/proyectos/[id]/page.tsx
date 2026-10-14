@@ -46,7 +46,7 @@ import { INITIAL_PROJECTS, INITIAL_INCIDENCES, MockIncidenceEntry, MockProject }
 import UserManagementModal from '@/components/UserManagementModal';
 import DatabaseBackupModal from '@/components/DatabaseBackupModal';
 import IncidenceTypesModal from '@/components/IncidenceTypesModal';
-import EditProjectModal from '@/components/EditProjectModal';
+import NewProjectModal from '@/components/NewProjectModal';
 import Sidebar from '@/components/Sidebar';
 import AttachmentViewerModal, { AttachmentItem } from '@/components/AttachmentViewerModal';
 import NotificationsDropdown from '@/components/NotificationsDropdown';
@@ -1183,13 +1183,6 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
                   </div>
                 </div>
               )}
-
-              <div className="bg-green-50 border border-green-200 p-3 rounded flex items-center space-x-2 text-green-900">
-                <ShieldCheck className="w-5 h-5 text-green-700 shrink-0" />
-                <div>
-                  <strong>Firma Digital Validada:</strong> Certificado Digital acreditado por INDECOPI / RENIEC. Registro inmutable en base de datos PostgreSQL.
-                </div>
-              </div>
             </div>
 
             <div className="flex items-center justify-between pt-3 border-t">
@@ -1219,12 +1212,15 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
         </div>
       )}
 
-      {/* Modal de Edición, Reasignación y Archivamiento de Proyecto */}
-      <EditProjectModal
+      {/* Modal de Edición y Asignación de Proyecto */}
+      <NewProjectModal
         isOpen={Boolean(editingProject)}
         onClose={() => setEditingProject(null)}
-        project={editingProject}
-        onSaveProject={handleUpdateProject}
+        projectToEdit={editingProject}
+        onSaveProject={(updatedProj) => {
+          handleUpdateProject(updatedProj);
+          setEditingProject(null);
+        }}
       />
 
       {/* Visor de Adjuntos y Lightbox */}

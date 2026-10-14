@@ -323,6 +323,38 @@ export default function LoginPage() {
       localStorage.setItem('user_id', user.id);
       localStorage.setItem('user_account', user.usuario);
       localStorage.setItem('user_2fa_verified', 'true');
+
+      // 🧹 LIMPIAR NOTIFICACIONES INEXISTENTES AL INICIAR SESIÓN
+      const savedProjectsStr = localStorage.getItem('app_projects_list');
+      const validProjectIds = new Set<string>();
+      if (savedProjectsStr) {
+        try {
+          const parsedProj = JSON.parse(savedProjectsStr);
+          if (Array.isArray(parsedProj)) {
+            parsedProj.forEach((p: any) => {
+              if (p.id) validProjectIds.add(p.id);
+              if (p.cui) validProjectIds.add(p.cui);
+            });
+          }
+        } catch (e) {}
+      }
+
+      const notifStr = localStorage.getItem('app_notifications_list');
+      if (notifStr) {
+        try {
+          const parsedNotifs = JSON.parse(notifStr);
+          if (Array.isArray(parsedNotifs)) {
+            const validNotifs = parsedNotifs.filter((n: any) =>
+              n.proyectoId && validProjectIds.has(n.proyectoId) && !n.id.startsWith('notif-10')
+            );
+            localStorage.setItem('app_notifications_list', JSON.stringify(validNotifs));
+          } else {
+            localStorage.removeItem('app_notifications_list');
+          }
+        } catch (e) {
+          localStorage.removeItem('app_notifications_list');
+        }
+      }
     }
 
     setTimeout(() => {

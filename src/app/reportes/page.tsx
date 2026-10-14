@@ -183,7 +183,12 @@ export default function ReportsPage() {
   // Imprimir Reporte Oficial (PDF)
   const handlePrintReport = () => {
     if (typeof window !== 'undefined') {
+      const prevTitle = document.title;
+      document.title = '';
       window.print();
+      setTimeout(() => {
+        document.title = prevTitle;
+      }, 1000);
     }
   };
 
@@ -315,8 +320,8 @@ export default function ReportsPage() {
               </button>
 
               {isSettingsDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-64 bg-white rounded-md shadow-xl border border-[#E2E2E2] py-1 text-xs text-[#1A1C1C] z-50">
-                  <div className="px-3 py-2 border-b border-[#E2E2E2] font-bold text-[#5B403D]">
+                <div className="absolute right-0 mt-2 w-64 bg-white rounded-md shadow-xl border border-[#FFFFF] py-1 text-xs text-[#1A1C1C] z-50">
+                  <div className="px-3 py-2 border-b border-[#FFFFF] font-bold text-[#5B403D]">
                     Opciones del Sistema
                   </div>
 
@@ -383,7 +388,7 @@ export default function ReportsPage() {
 
         <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
           {/* Subheader Banner */}
-          <div className="bg-white border-b border-[#E2E2E2] py-4 px-6 sm:px-8 no-print">
+          <div className="bg-white border-b border-[#FFFFF] py-4 px-6 sm:px-8 no-print">
             <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <span className="text-xs text-[#91000A] font-bold font-mono uppercase tracking-wider flex items-center space-x-1.5">
@@ -409,7 +414,7 @@ export default function ReportsPage() {
           </div>
 
           {/* Pestañas de Navegación de Reportes */}
-          <div className="bg-white border-b border-[#E2E2E2] px-6 sm:px-8 no-print">
+          <div className="bg-white border-b border-[#FFFFF] px-6 sm:px-8 no-print">
             <div className="max-w-7xl mx-auto flex space-x-6">
               <Link
                 href="/reportes"
@@ -431,7 +436,7 @@ export default function ReportsPage() {
           {/* Main Container */}
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 w-full flex-1">
             {/* PANEL DE CONFIGURACIÓN Y GENERACIÓN DE REPORTE */}
-            <div className="bg-white rounded-xl border border-[#E2E2E2] shadow-sm overflow-hidden no-print">
+            <div className="bg-white rounded-xl border border-[#FFFFF] shadow-sm overflow-hidden no-print">
               <div className="bg-[#91000A] text-white px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center space-x-2.5">
                   <FileSpreadsheet className="w-5 h-5 text-yellow-300" />

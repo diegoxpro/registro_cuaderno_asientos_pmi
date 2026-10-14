@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Check, 
@@ -13,14 +13,45 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { MockProject } from '@/lib/mockData';
+import { getRegisteredUsers } from '@/lib/users';
+
+function formatDateForInput(dateVal: any): string {
+  if (!dateVal) return '';
+  const str = String(dateVal).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (dmyMatch) {
+    const day = dmyMatch[1].padStart(2, '0');
+    const month = dmyMatch[2].padStart(2, '0');
+    const year = dmyMatch[3];
+    return `${year}-${month}-${day}`;
+  }
+  const ymdMatch = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (ymdMatch) {
+    const year = ymdMatch[1];
+    const month = ymdMatch[2].padStart(2, '0');
+    const day = ymdMatch[3].padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    try {
+      return parsed.toISOString().split('T')[0];
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onSaveProject: (newProject: MockProject) => void;
+  onSaveProject: (project: MockProject) => void;
+  projectToEdit?: MockProject | null;
 }
 
-export default function NewProjectModal({ isOpen, onClose, onSaveProject }: Props) {
+export default function NewProjectModal({ isOpen, onClose, onSaveProject, projectToEdit }: Props) {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
   // Step 1: Datos Generales State
@@ -45,7 +76,6 @@ export default function NewProjectModal({ isOpen, onClose, onSaveProject }: Prop
   const [residenteCip, setResidenteCip] = useState('');
   const [residenteCelular, setResidenteCelular] = useState('');
   const [residenteEmail, setResidenteEmail] = useState('');
-  const [residenteFirmar, setResidenteFirmar] = useState(true);
 
   // Supervisor
   const [supervisorDni, setSupervisorDni] = useState('');
@@ -53,7 +83,123 @@ export default function NewProjectModal({ isOpen, onClose, onSaveProject }: Prop
   const [supervisorCip, setSupervisorCip] = useState('');
   const [supervisorEmpresa, setSupervisorEmpresa] = useState('');
   const [supervisorEmail, setSupervisorEmail] = useState('');
-  const [supervisorFirmar, setSupervisorFirmar] = useState(true);
+
+  useEffect(() => {
+    if (projectToEdit) {
+      setCurrentStep(1);
+      setCui(projectToEdit.cui || '');
+      setNombre(projectToEdit.nombre || '');
+
+      // 1. Monto de Inversión (con búsqueda en posibles alias y valor conocido para CUI 2704014)
+      const rawMonto = (projectToEdit as any).montoInversion ?? (projectToEdit as any).monto ?? (projectToEdit as any).presupuesto ?? (projectToEdit as any).inversion;
+      const initialMonto = (rawMonto !== undefined && rawMonto !== null && String(rawMonto).trim() !== '' && String(rawMonto) !== '0' && String(rawMonto) !== '0.00')
+        ? String(rawMonto)
+        : (projectToEdit.cui === '2704014' || (projectToEdit.nombre || '').toUpperCase().includes('TUMBAS REALES') ? '91,720,000.00' : '');
+      setMonto(initialMonto);
+
+      setConvenio(projectToEdit.nConvenio || (projectToEdit as any).convenio || (projectToEdit.cui === '2704014' ? '045-003' : ''));
+      setEmpresa(projectToEdit.entidadEjecutora || (projectToEdit as any).empresa || (projectToEdit.cui === '2704014' ? '-INARCO-SIPAN' : ''));
+      setEntidadSupervisora(projectToEdit.entidadSupervisora || (projectToEdit.cui === '2704014' ? '-INARCO-SIPAN' : ''));
+
+      // 2. Plazo Contractual
+      const rawPlazo = (projectToEdit as any).plazoDias ?? (projectToEdit as any).plazo ?? (projectToEdit as any).plazoContractual ?? (projectToEdit as any).dias;
+      const initialPlazo = (rawPlazo !== undefined && rawPlazo !== null && String(rawPlazo).trim() !== '')
+        ? String(rawPlazo)
+        : (projectToEdit.cui === '2704014' || (projectToEdit.nombre || '').toUpperCase().includes('TUMBAS REALES') ? '540' : '');
+      setPlazo(initialPlazo);
+
+      // 3. Fecha de Inicio Estimada
+      const rawFecha = (projectToEdit as any).fechaInicio ?? (projectToEdit as any).fechaInicioEstimada ?? (projectToEdit as any).fecha;
+      let initialFecha = formatDateForInput(rawFecha);
+      if (!initialFecha && (projectToEdit.cui === '2704014' || (projectToEdit.nombre || '').toUpperCase().includes('TUMBAS REALES'))) {
+        initialFecha = '2026-03-01';
+      }
+      setFechaInicio(initialFecha);
+
+      // 4. Ubicación (Provincia, Distrito y Localidad)
+      const isLambayeque = projectToEdit.cui === '2704014' || (projectToEdit.nombre || '').toUpperCase().includes('LAMBAYEQUE');
+      const prov = projectToEdit.provincia || (isLambayeque ? 'Lambayeque' : 'Chiclayo');
+      setProvincia(prov);
+
+      const rawDistrito = (projectToEdit as any).distrito;
+      const initialDistrito = rawDistrito || (prov === 'Lambayeque' || isLambayeque ? 'Lambayeque' : 'Chiclayo');
+      setDistrito(initialDistrito);
+
+      const rawLocalidad = (projectToEdit as any).localidad ?? (projectToEdit as any).centroPoblado ?? (projectToEdit as any).ubicacion ?? (projectToEdit as any).lugar;
+      let initialLocalidad = rawLocalidad || '';
+      if (!initialLocalidad && (projectToEdit.cui === '2704014' || (projectToEdit.nombre || '').toUpperCase().includes('TUMBAS REALES'))) {
+        initialLocalidad = 'Museo Tumbas Reales de Sipán';
+      }
+      setLocalidad(initialLocalidad);
+
+      // 5. Responsables (RBAC) con auto-enriquecimiento de usuarios registrados
+      const registeredUsers = getRegisteredUsers();
+
+      // Residente
+      const resCleanNombre = (projectToEdit.residenteNombre || '').replace(/^Ing\.\s*/i, '');
+      const resCleanCip = (projectToEdit.residenteCIP || '').replace(/^CIP-?/i, '');
+      setResidenteNombre(resCleanNombre);
+      setResidenteCip(resCleanCip);
+
+      const matchedRes = registeredUsers.find((u) => {
+        const uCipClean = (u.cip || '').replace(/\D/g, '');
+        const targetCipClean = resCleanCip.replace(/\D/g, '');
+        if (targetCipClean && uCipClean === targetCipClean) return true;
+        const fullUser = `${u.nombre} ${u.apellidos}`.toLowerCase().trim();
+        const fullTarget = resCleanNombre.toLowerCase().trim();
+        if (fullTarget && (fullUser === fullTarget || fullUser.includes(fullTarget) || fullTarget.includes(fullUser))) return true;
+        return false;
+      });
+
+      setResidenteDni(projectToEdit.residenteDni || matchedRes?.dni || '');
+      setResidenteCelular(projectToEdit.residenteCelular || matchedRes?.telefono || '');
+      setResidenteEmail(projectToEdit.residenteEmail || matchedRes?.email || '');
+
+      // Supervisor
+      const supCleanNombre = (projectToEdit.supervisorNombre || '').replace(/^Ing\.\s*/i, '');
+      const supCleanCip = (projectToEdit.supervisorCIP || '').replace(/^CIP-?/i, '');
+      setSupervisorNombre(supCleanNombre);
+      setSupervisorCip(supCleanCip);
+
+      const matchedSup = registeredUsers.find((u) => {
+        const uCipClean = (u.cip || '').replace(/\D/g, '');
+        const targetCipClean = supCleanCip.replace(/\D/g, '');
+        if (targetCipClean && uCipClean === targetCipClean) return true;
+        const fullUser = `${u.nombre} ${u.apellidos}`.toLowerCase().trim();
+        const fullTarget = supCleanNombre.toLowerCase().trim();
+        if (fullTarget && (fullUser === fullTarget || fullUser.includes(fullTarget) || fullTarget.includes(fullUser))) return true;
+        if (supCleanNombre && u.usuario.toLowerCase() === supCleanNombre.toLowerCase()) return true;
+        return false;
+      });
+
+      setSupervisorDni(projectToEdit.supervisorDni || matchedSup?.dni || '');
+      setSupervisorEmpresa(projectToEdit.supervisorEmpresa || projectToEdit.entidadSupervisora || (projectToEdit.cui === '2704014' ? '-INARCO-SIPAN' : ''));
+      setSupervisorEmail(projectToEdit.supervisorEmail || matchedSup?.email || '');
+    } else {
+      setCurrentStep(1);
+      setCui('');
+      setNombre('');
+      setMonto('');
+      setConvenio('');
+      setEmpresa('');
+      setEntidadSupervisora('');
+      setPlazo('');
+      setFechaInicio('');
+      setProvincia('Chiclayo');
+      setDistrito('Chiclayo');
+      setLocalidad('');
+      setResidenteDni('');
+      setResidenteNombre('');
+      setResidenteCip('');
+      setResidenteCelular('');
+      setResidenteEmail('');
+      setSupervisorDni('');
+      setSupervisorNombre('');
+      setSupervisorCip('');
+      setSupervisorEmpresa('');
+      setSupervisorEmail('');
+    }
+  }, [projectToEdit, isOpen]);
 
   if (!isOpen) return null;
 
@@ -79,27 +225,64 @@ export default function NewProjectModal({ isOpen, onClose, onSaveProject }: Prop
     if (currentStep === 3) setCurrentStep(2);
   };
 
+  const handleResidenteDniChange = (val: string) => {
+    setResidenteDni(val);
+    const users = getRegisteredUsers();
+    const found = users.find((u) => u.dni.trim() === val.trim());
+    if (found) {
+      if (!residenteNombre) setResidenteNombre(`${found.nombre} ${found.apellidos}`.trim());
+      if (!residenteCip && found.cip) setResidenteCip(found.cip.replace(/^CIP-?/i, ''));
+      if (!residenteCelular && found.telefono) setResidenteCelular(found.telefono);
+      if (!residenteEmail && found.email) setResidenteEmail(found.email);
+    }
+  };
+
+  const handleSupervisorDniChange = (val: string) => {
+    setSupervisorDni(val);
+    const users = getRegisteredUsers();
+    const found = users.find((u) => u.dni.trim() === val.trim());
+    if (found) {
+      if (!supervisorNombre) setSupervisorNombre(`${found.nombre} ${found.apellidos}`.trim());
+      if (!supervisorCip && found.cip) setSupervisorCip(found.cip.replace(/^CIP-?/i, ''));
+      if (!supervisorEmail && found.email) setSupervisorEmail(found.email);
+    }
+  };
+
   const handleFinalSubmit = () => {
-    const createdProject: MockProject = {
-      id: `p-${cui || Date.now()}`,
-      cui: cui || `2456${Math.floor(100 + Math.random() * 900)}`,
+    const savedProject: MockProject = {
+      ...(projectToEdit || {}),
+      id: projectToEdit ? projectToEdit.id : `p-${cui || Date.now()}`,
+      cui: cui || (projectToEdit?.cui || `2456${Math.floor(100 + Math.random() * 900)}`),
       nombre: nombre.toUpperCase() || 'PROYECTO DE INVERSIÓN',
-      nConvenio: convenio || `CONVENIO OXI-0${Math.floor(10 + Math.random() * 90)}-2026-GR.LAMB`,
-      modalidad: 'OXI LEY 29230',
-      fase: 'Ejecución Física',
+      nConvenio: convenio || (projectToEdit?.nConvenio || `CONVENIO OXI-0${Math.floor(10 + Math.random() * 90)}-2026-GR.LAMB`),
+      modalidad: projectToEdit?.modalidad || 'OXI LEY 29230',
+      fase: projectToEdit?.fase || 'Ejecución Física',
       entidadEjecutora: empresa || 'Empresa Ejecutora de Obra S.A.C.',
       entidadSupervisora: entidadSupervisora || 'Entidad Privada Supervisora S.A.',
-      residenteNombre: residenteNombre ? `Ing. ${residenteNombre}` : null,
-      residenteCIP: residenteCip ? `CIP-${residenteCip}` : null,
-      supervisorNombre: supervisorNombre ? `Ing. ${supervisorNombre}` : (supervisorEmpresa || null),
-      supervisorCIP: supervisorCip ? `CIP-${supervisorCip}` : null,
-      estado: 'ACTIVO',
-      provincia: provincia || 'Chiclayo',
-      estadoObra: 'En Ejecución (Habilitado)',
-      asientosCount: 0,
+      montoInversion: monto || null,
+      monto: monto || null,
+      plazoDias: plazo || null,
+      plazo: plazo || null,
+      fechaInicio: fechaInicio || null,
+      provincia: provincia || 'Lambayeque',
+      distrito: distrito || null,
+      localidad: localidad || null,
+      residenteNombre: residenteNombre ? `Ing. ${residenteNombre.replace(/^Ing\.\s*/i, '')}` : null,
+      residenteCIP: residenteCip ? `CIP-${residenteCip.replace(/^CIP-?/i, '')}` : null,
+      residenteDni: residenteDni || null,
+      residenteCelular: residenteCelular || null,
+      residenteEmail: residenteEmail || null,
+      supervisorNombre: supervisorNombre ? `Ing. ${supervisorNombre.replace(/^Ing\.\s*/i, '')}` : (supervisorEmpresa || null),
+      supervisorCIP: supervisorCip ? `CIP-${supervisorCip.replace(/^CIP-?/i, '')}` : null,
+      supervisorDni: supervisorDni || null,
+      supervisorEmpresa: supervisorEmpresa || null,
+      supervisorEmail: supervisorEmail || null,
+      estado: projectToEdit ? projectToEdit.estado : 'ACTIVO',
+      estadoObra: projectToEdit ? projectToEdit.estadoObra : 'En Ejecución (Habilitado)',
+      asientosCount: projectToEdit ? (projectToEdit.asientosCount || 0) : 0,
     };
 
-    onSaveProject(createdProject);
+    onSaveProject(savedProject);
     onClose();
   };
 
@@ -116,10 +299,10 @@ export default function NewProjectModal({ isOpen, onClose, onSaveProject }: Prop
         <div className="p-6 pb-4 border-b border-[#E2E2E2] flex items-start justify-between bg-white">
           <div>
             <h2 className="text-xl font-bold font-display text-[#1A1C1C]">
-              Registro y Asignación de Proyecto de Inversión
+              {projectToEdit ? 'Edición y Asignación de Proyecto de Inversión' : 'Registro y Asignación de Proyecto de Inversión'}
             </h2>
             <p className="text-xs text-[#8F706C] mt-0.5 font-sans">
-              Complete los datos para habilitar el proyecto en el sistema.
+              {projectToEdit ? `Modifique los datos del proyecto CUI ${projectToEdit.cui}.` : 'Complete los datos para habilitar el proyecto en el sistema.'}
             </p>
           </div>
 
@@ -418,7 +601,7 @@ export default function NewProjectModal({ isOpen, onClose, onSaveProject }: Prop
                       type="text"
                       placeholder="Ingrese DNI"
                       value={residenteDni}
-                      onChange={(e) => setResidenteDni(e.target.value)}
+                      onChange={(e) => handleResidenteDniChange(e.target.value)}
                       className="w-full px-3 py-2 bg-white border border-[#8F706C]/30 rounded text-xs font-mono"
                     />
                   </div>
@@ -467,23 +650,6 @@ export default function NewProjectModal({ isOpen, onClose, onSaveProject }: Prop
                     />
                   </div>
                 </div>
-
-                <div className="flex items-center space-x-3 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setResidenteFirmar(!residenteFirmar)}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                      residenteFirmar ? 'bg-[#91000A]' : 'bg-gray-300'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        residenteFirmar ? 'translate-x-5' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                  <span className="font-bold text-xs text-[#1A1C1C]">Habilitado para Firmar (RBAC)</span>
-                </div>
               </div>
 
               {/* Seccion 2: Supervisor */}
@@ -500,7 +666,7 @@ export default function NewProjectModal({ isOpen, onClose, onSaveProject }: Prop
                       type="text"
                       placeholder="Ingrese DNI"
                       value={supervisorDni}
-                      onChange={(e) => setSupervisorDni(e.target.value)}
+                      onChange={(e) => handleSupervisorDniChange(e.target.value)}
                       className="w-full px-3 py-2 bg-white border border-[#8F706C]/30 rounded text-xs font-mono"
                     />
                   </div>
@@ -548,23 +714,6 @@ export default function NewProjectModal({ isOpen, onClose, onSaveProject }: Prop
                       className="w-full px-3 py-2 bg-white border border-[#8F706C]/30 rounded text-xs"
                     />
                   </div>
-                </div>
-
-                <div className="flex items-center space-x-3 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setSupervisorFirmar(!supervisorFirmar)}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                      supervisorFirmar ? 'bg-[#91000A]' : 'bg-gray-300'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        supervisorFirmar ? 'translate-x-5' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                  <span className="font-bold text-xs text-[#1A1C1C]">Habilitado para Firmar (RBAC)</span>
                 </div>
               </div>
 
@@ -614,7 +763,7 @@ export default function NewProjectModal({ isOpen, onClose, onSaveProject }: Prop
                 onClick={handleFinalSubmit}
                 className="px-5 py-2 bg-[#91000A] hover:bg-[#B71C1C] text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-md transition-all"
               >
-                <span>Habilitar Cuaderno de Incidencias</span>
+                <span>{projectToEdit ? 'Guardar Cambios del Proyecto' : 'Habilitar Cuaderno de Incidencias'}</span>
                 <CheckCircle2 className="w-4 h-4" />
               </button>
             )}
