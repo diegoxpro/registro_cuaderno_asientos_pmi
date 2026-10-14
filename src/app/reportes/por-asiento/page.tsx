@@ -68,9 +68,7 @@ export default function ReportePorAsientoPage() {
         try {
           const parsed = JSON.parse(savedProjects);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            // Unir proyectos guardados asegurando que p-2704014 esté presente
-            const hasSample = parsed.some((p) => p.id === 'p-2704014' || p.cui === '2704014');
-            loadedProjects = hasSample ? parsed : [...INITIAL_PROJECTS.filter(p => p.id === 'p-2704014'), ...parsed];
+            loadedProjects = parsed;
           }
         } catch (e) {
           console.error('Error al cargar proyectos guardados:', e);
@@ -78,8 +76,8 @@ export default function ReportePorAsientoPage() {
       }
       setProjects(loadedProjects);
 
-      // Si existe el proyecto de ejemplo p-2704014, seleccionarlo por defecto
-      const defaultProj = loadedProjects.find(p => p.id === 'p-2704014') || loadedProjects[0];
+      const lastId = localStorage.getItem('last_selected_project_id');
+      const defaultProj = (lastId ? loadedProjects.find(p => p.id === lastId || p.cui === lastId) : null) || loadedProjects[0];
       if (defaultProj) {
         setSelectedProjectId(defaultProj.id);
       }

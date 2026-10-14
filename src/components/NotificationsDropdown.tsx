@@ -40,62 +40,7 @@ export interface NotificationItem {
   mensaje?: string;
 }
 
-const INITIAL_NOTIFICATIONS: NotificationItem[] = [
-  {
-    id: 'notif-101',
-    proyectoId: 'p-2548912',
-    cuiProyecto: '2548912',
-    nombreProyecto: 'HOSPITAL PROVINCIAL DE FERREÑAFE',
-    asientoId: 'a-2',
-    numeroCorrelativo: '0002',
-    tipoIncidencia: 'CONSULTA_TECNICA',
-    tituloAsiento: 'INTERFERENCIA CON RED DE AGUA POTABLE NO REGISTRADA EN PLANO DE CIMENTACIONES - EJE D-4',
-    autorNombre: 'Ing. Juan Pérez Valdivia',
-    autorCargo: 'Residente de Obra',
-    fechaHora: '2026-08-26 08:15',
-    destinatariosRoles: ['SUPERVISOR', 'SUPERVISOR_DE_OBRA', 'ADMINISTRADOR', 'ADMIN', 'JEFE_DE_PROYECTO'],
-    leido: false,
-    archivado: false,
-    esRespuesta: false,
-    mensaje: '🔔 Se generó la Consulta Técnica Asiento N° 0002 por el Residente de Obra. Requiere respuesta de Supervisión.',
-  },
-  {
-    id: 'notif-102',
-    proyectoId: 'p-2548912',
-    cuiProyecto: '2548912',
-    nombreProyecto: 'HOSPITAL PROVINCIAL DE FERREÑAFE',
-    asientoId: 'a-4',
-    numeroCorrelativo: '0002-R',
-    tipoIncidencia: 'OBSERVACION',
-    tituloAsiento: 'RESPUESTA A ASIENTO N° 2 Y OBSERVACIÓN SOBRE MEDIDAS DE SEGURIDAD',
-    autorNombre: 'Ing. María Torres Ugarte',
-    autorCargo: 'Supervisor de Obra',
-    fechaHora: '2026-08-26 08:20',
-    destinatariosRoles: ['ADMINISTRADOR', 'ADMIN', 'RESIDENTE', 'JEFE_DE_PROYECTO'],
-    leido: false,
-    archivado: false,
-    esRespuesta: true,
-    mensaje: '💬 Se registró el Asiento Respuesta N° 0002-R por la Supervisión atendiendo la Consulta Técnica de Cimentaciones.',
-  },
-  {
-    id: 'notif-103',
-    proyectoId: 'p-2419083',
-    cuiProyecto: '2419083',
-    nombreProyecto: 'AVENIDA CHINCHAYSUYO CHICLAYO',
-    asientoId: 'a-301',
-    numeroCorrelativo: '0001',
-    tipoIncidencia: 'RIESGO',
-    tituloAsiento: 'ALERTA DE RIESGO DE RETRASO EN EXPEDIENTE TÉCNICO VIAL',
-    autorNombre: 'Ing. Roberto Gómez Bolaños',
-    autorCargo: 'Proyectista / Residente',
-    fechaHora: '2026-08-26 07:45',
-    destinatariosRoles: ['SUPERVISOR', 'SUPERVISOR_DE_OBRA', 'ADMINISTRADOR', 'ADMIN', 'JEFE_DE_PROYECTO'],
-    leido: false,
-    archivado: false,
-    esRespuesta: false,
-    mensaje: '⚠️ Alerta de Riesgo asignada a la Supervisión por demora en aprobación de interferencias eléctricas.',
-  },
-];
+const INITIAL_NOTIFICATIONS: NotificationItem[] = [];
 
 export default function NotificationsDropdown() {
   const router = useRouter();
@@ -114,19 +59,17 @@ export default function NotificationsDropdown() {
       if (savedStr) {
         try {
           const parsed = JSON.parse(savedStr);
-          if (Array.isArray(parsed) && parsed.length > 0) {
+          if (Array.isArray(parsed)) {
             setNotifications(parsed);
           } else {
-            setNotifications(INITIAL_NOTIFICATIONS);
-            localStorage.setItem('app_notifications_list', JSON.stringify(INITIAL_NOTIFICATIONS));
+            setNotifications([]);
           }
         } catch (e) {
           console.error(e);
-          setNotifications(INITIAL_NOTIFICATIONS);
+          setNotifications([]);
         }
       } else {
-        setNotifications(INITIAL_NOTIFICATIONS);
-        localStorage.setItem('app_notifications_list', JSON.stringify(INITIAL_NOTIFICATIONS));
+        setNotifications([]);
       }
     }
   }, []);

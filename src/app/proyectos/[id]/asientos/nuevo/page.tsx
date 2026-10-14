@@ -55,35 +55,75 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
   const { id } = use(params);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [project, setProject] = useState<MockProject>(() => {
-    return INITIAL_PROJECTS.find((p) => p.id === id || p.cui === id) || INITIAL_PROJECTS[0] || EMPTY_PROJECT;
-  });
+  const [project, setProject] = useState<MockProject>(EMPTY_PROJECT);
 
   // Estado con la lista completa de incidencias (locales + estáticas)
-  const [allIncidences, setAllIncidences] = useState<MockIncidenceEntry[]>(() => {
-    return (project && INITIAL_INCIDENCES[project.id]) || [];
-  });
+  const [allIncidences, setAllIncidences] = useState<MockIncidenceEntry[]>([]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const storageKey = `custom_incidences_${project.id}`;
+      // 1. Obtener lista de proyectos desde localStorage o INITIAL_PROJECTS
+      const savedProjects = localStorage.getItem('app_projects_list');
+      let baseProjects = INITIAL_PROJECTS;
+      if (savedProjects) {
+        try {
+          const parsed = JSON.parse(savedProjects);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            baseProjects = parsed;
+          }
+        } catch (e) {
+          console.error('Error al parsear proyectos en nuevo asiento:', e);
+        }
+      }
+
+      // 2. Buscar el proyecto por id o cui, o último seleccionado, o el primer proyecto disponible
+      const lastSelectedId = localStorage.getItem('last_selected_project_id');
+      const foundProject =
+        baseProjects.find((p) => p.id === id || p.cui === id) ||
+        (lastSelectedId ? baseProjects.find((p) => p.id === lastSelectedId || p.cui === lastSelectedId) : undefined) ||
+        baseProjects[0] ||
+        EMPTY_PROJECT;
+
+      setProject(foundProject);
+
+      const activeProjId = foundProject.id || id;
+      if (activeProjId) {
+        localStorage.setItem('last_selected_project_id', activeProjId);
+      }
+
+      // 3. Cargar incidencias existentes y recuperar huérfanas
+      const storageKey = `custom_incidences_${activeProjId}`;
+      let savedList: MockIncidenceEntry[] = [];
       const savedStr = localStorage.getItem(storageKey);
       if (savedStr) {
         try {
-          const savedList = JSON.parse(savedStr);
-          if (Array.isArray(savedList) && savedList.length > 0) {
-            const initialList = INITIAL_INCIDENCES[project.id] || [];
-            setAllIncidences([...savedList, ...initialList]);
-          } else {
-            setAllIncidences(INITIAL_INCIDENCES[project.id] || []);
-          }
+          const parsed = JSON.parse(savedStr);
+          if (Array.isArray(parsed)) savedList = parsed;
         } catch (e) {
           console.error(e);
-          setAllIncidences(INITIAL_INCIDENCES[project.id] || []);
         }
-      } else {
-        setAllIncidences(INITIAL_INCIDENCES[project.id] || []);
       }
+
+      // Rescatar asientos huérfanos que hayan podido guardarse bajo custom_incidences_ o custom_incidences_undefined
+      const orphanStr = localStorage.getItem('custom_incidences_') || localStorage.getItem('custom_incidences_undefined');
+      if (orphanStr && activeProjId) {
+        try {
+          const orphans = JSON.parse(orphanStr);
+          if (Array.isArray(orphans) && orphans.length > 0) {
+            const seenIds = new Set(savedList.map((x) => x.id));
+            const toAdd = orphans.filter((x) => !seenIds.has(x.id));
+            if (toAdd.length > 0) {
+              savedList = [...toAdd, ...savedList];
+              localStorage.setItem(storageKey, JSON.stringify(savedList));
+            }
+            localStorage.removeItem('custom_incidences_');
+            localStorage.removeItem('custom_incidences_undefined');
+          }
+        } catch (e) {}
+      }
+
+      const initialList = INITIAL_INCIDENCES[activeProjId] || [];
+      setAllIncidences([...savedList, ...initialList]);
 
       // Preseleccionar asiento a responder si viene con el parámetro responderId
       const urlParams = new URLSearchParams(window.location.search);
@@ -93,7 +133,7 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
         setAsientoRespondidoId(responderId);
       }
     }
-  }, [project.id]);
+  }, [id]);
 
   // Siguiente número correlativo autogenerado basado en el número máximo existente
   const maxCorrelativo = allIncidences.reduce((max, inc) => {
@@ -201,6 +241,12 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
     const now = new Date();
     const formattedDate = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
+    const targetProjectId = project.id || id || (typeof window !== 'undefined' ? localStorage.getItem('last_selected_project_id') : '') || '';
+
+    const storedRole = (typeof window !== 'undefined' ? localStorage.getItem('user_role') : null) || 'Supervisor de Obra';
+    const storedName = (typeof window !== 'undefined' ? localStorage.getItem('user_name') : null) || 'Ing. Responsable de Obra';
+    const storedCip = (typeof window !== 'undefined' ? localStorage.getItem('user_cip') : null) || 'CIP-701234';
+
     // Construcción de la nueva incidencia registrada
     const newIncidence = {
       id: `e-new-${Date.now()}`,
@@ -210,9 +256,9 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
       titulo: titulo,
       contenido: contenido,
       fechaHora: formattedDate,
-      autorNombre: 'Ing. María Torres Ugarte',
-      autorCargo: 'Supervisor de Obra — GORE Lambayeque',
-      autorCIP: 'CIP-198273',
+      autorNombre: storedName,
+      autorCargo: storedRole,
+      autorCIP: storedCip,
       firmadoDigitalmente: true,
       esRespuestaDeId: esRespuesta && asientoRespondidoId ? asientoRespondidoId : null,
       respuestas: [],
@@ -239,7 +285,7 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
         })),
       };
 
-      const storageKey = `custom_incidences_${project.id}`;
+      const storageKey = `custom_incidences_${targetProjectId}`;
       const existingStr = localStorage.getItem(storageKey);
       const existingList = existingStr ? JSON.parse(existingStr) : [];
 
@@ -262,13 +308,32 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
         }
       }
 
-      // 🔔 NOTIFICACIÓN AUTOMÁTICA AL SUPERVISOR Y ADMINISTRADOR
-      const storedRole = localStorage.getItem('user_role') || 'Residente de Obra';
-      const storedName = localStorage.getItem('user_name') || newIncidence.autorNombre;
+      // 🔔 ACTUALIZAR CONTADOR DE ASIENTOS EN app_projects_list Y GUARDAR ÚLTIMO PROYECTO SELECCIONADO
+      const savedProjects = localStorage.getItem('app_projects_list');
+      if (savedProjects) {
+        try {
+          const parsed = JSON.parse(savedProjects);
+          if (Array.isArray(parsed)) {
+            const updated = parsed.map((p: MockProject) => {
+              if (p.id === targetProjectId || p.cui === project.cui) {
+                return { ...p, asientosCount: (p.asientosCount || 0) + 1 };
+              }
+              return p;
+            });
+            localStorage.setItem('app_projects_list', JSON.stringify(updated));
+          }
+        } catch (e) {
+          console.error('Error al actualizar contador de asientos del proyecto:', e);
+        }
+      }
+      if (targetProjectId) {
+        localStorage.setItem('last_selected_project_id', targetProjectId);
+      }
 
+      // 🔔 NOTIFICACIÓN AUTOMÁTICA AL SUPERVISOR Y ADMINISTRADOR
       const notificationItem = {
         id: `notif-${Date.now()}`,
-        proyectoId: project.id,
+        proyectoId: targetProjectId,
         cuiProyecto: project.cui,
         nombreProyecto: project.nombre,
         asientoId: newIncidence.id,
@@ -304,7 +369,7 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
 
     setTimeout(() => {
       alert(`✅ Asiento registrado exitosamente en el Cuaderno Digital con numeración: N° ${displayNumeroCorrelativo}.`);
-      window.location.href = `/proyectos/${project.id}`;
+      window.location.href = `/proyectos/${targetProjectId}`;
     }, 600);
   };
 

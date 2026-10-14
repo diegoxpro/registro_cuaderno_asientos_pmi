@@ -560,7 +560,12 @@ export default function CarteraProyectosPage() {
                     {filteredProjects.map((p) => (
                       <tr
                         key={p.id}
-                        onDoubleClick={() => router.push(`/proyectos/${p.id}`)}
+                        onDoubleClick={() => {
+                          if (typeof window !== 'undefined') {
+                            localStorage.setItem('last_selected_project_id', p.id);
+                          }
+                          router.push(`/proyectos/${p.id}`);
+                        }}
                         className="hover:bg-red-50/60 transition-colors cursor-pointer select-none"
                         title="Doble clic para abrir el Cuaderno Digital de Incidencias de este proyecto"
                       >
@@ -671,6 +676,11 @@ export default function CarteraProyectosPage() {
                             {/* BOTÓN 3: Cuaderno Digital (Solo icono) */}
                             <Link
                               href={`/proyectos/${p.id}`}
+                              onClick={() => {
+                                if (typeof window !== 'undefined') {
+                                  localStorage.setItem('last_selected_project_id', p.id);
+                                }
+                              }}
                               className="p-2 bg-[#91000A] hover:bg-[#B71C1C] text-white rounded-lg shadow-sm transition-all hover:scale-110 inline-flex items-center justify-center"
                               title={`Abrir Cuaderno Digital de Incidencias (CUI: ${p.cui})`}
                             >

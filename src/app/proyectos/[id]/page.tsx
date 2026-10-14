@@ -151,14 +151,52 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
 
       setAllProjects(allowedProjects);
 
-      const found = baseProjects.find((p: MockProject) => p.id === id || p.cui === id);
-      if (found) {
-        setCurrentProject(found);
+      // Buscar el proyecto: por ID de URL, por CUI, por last_selected_project_id, o el primer proyecto disponible
+      let activeProj = baseProjects.find((p: MockProject) => p.id === id || p.cui === id);
+      if (!activeProj) {
+        const lastSelectedId = localStorage.getItem('last_selected_project_id');
+        if (lastSelectedId) {
+          activeProj = baseProjects.find((p: MockProject) => p.id === lastSelectedId || p.cui === lastSelectedId);
+        }
+      }
+      if (!activeProj && allowedProjects.length > 0) {
+        activeProj = allowedProjects[0];
+      }
+      if (!activeProj && baseProjects.length > 0) {
+        activeProj = baseProjects[0];
+      }
+
+      if (activeProj) {
+        setCurrentProject(activeProj);
+        localStorage.setItem('last_selected_project_id', activeProj.id);
       }
 
       // Cargar los asientos registrados recientemente para este proyecto
-      const activeProjId = found ? found.id : id;
+      const activeProjId = activeProj ? activeProj.id : id;
       const storageKey = `custom_incidences_${activeProjId}`;
+
+      // Recuperar cualquier asiento huérfano guardado bajo custom_incidences_ o custom_incidences_undefined
+      const orphanStr = localStorage.getItem('custom_incidences_') || localStorage.getItem('custom_incidences_undefined');
+      if (orphanStr && activeProjId) {
+        try {
+          const orphans = JSON.parse(orphanStr);
+          if (Array.isArray(orphans) && orphans.length > 0) {
+            const currentStr = localStorage.getItem(storageKey);
+            const currentList = currentStr ? JSON.parse(currentStr) : [];
+            const curIds = new Set(currentList.map((x: any) => x.id));
+            const newToAdd = orphans.filter((x: any) => !curIds.has(x.id));
+            if (newToAdd.length > 0) {
+              const merged = [...newToAdd, ...currentList];
+              localStorage.setItem(storageKey, JSON.stringify(merged));
+            }
+            localStorage.removeItem('custom_incidences_');
+            localStorage.removeItem('custom_incidences_undefined');
+          }
+        } catch (e) {
+          console.error('Error recuperando asientos huérfanos:', e);
+        }
+      }
+
       const savedStr = localStorage.getItem(storageKey);
       if (savedStr) {
         try {
@@ -220,6 +258,9 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
   const handleSelectProjectFromCombobox = (proj: MockProject) => {
     setIsComboboxOpen(false);
     setComboboxSearchTerm('');
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('last_selected_project_id', proj.id);
+    }
     router.push(`/proyectos/${proj.id}`);
   };
 

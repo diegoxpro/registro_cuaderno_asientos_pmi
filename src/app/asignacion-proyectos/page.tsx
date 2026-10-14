@@ -55,7 +55,7 @@ const DEFAULT_USERS: UserAssignment[] = [
 ];
 
 export default function AsignacionProyectosPage() {
-  const [projects] = useState<MockProject[]>(INITIAL_PROJECTS);
+  const [projects, setProjects] = useState<MockProject[]>(INITIAL_PROJECTS);
   const [usersAssignments, setUsersAssignments] = useState<UserAssignment[]>(DEFAULT_USERS);
 
   // Usuario actualmente seleccionado para editar sus proyectos asignados
@@ -149,7 +149,7 @@ export default function AsignacionProyectosPage() {
         apellidos: regUser.apellidos,
         dni: regUser.dni,
         rol: rolText,
-        assignedProjectIds: prev ? prev.assignedProjectIds : (isAdmin ? INITIAL_PROJECTS.map((p) => p.id) : ['p-2548912']),
+        assignedProjectIds: prev ? prev.assignedProjectIds : (isAdmin ? projects.map((p) => p.id) : []),
         restrictVisibility: prev ? prev.restrictVisibility : !isAdmin,
       };
     });
@@ -163,12 +163,24 @@ export default function AsignacionProyectosPage() {
         return exists ? currentId : mergedAssignments[0].userId;
       });
     }
-  }, []);
+  }, [projects]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const role = localStorage.getItem('user_role');
       if (role) setUserRole(role);
+
+      const savedProjects = localStorage.getItem('app_projects_list');
+      if (savedProjects) {
+        try {
+          const parsed = JSON.parse(savedProjects);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setProjects(parsed);
+          }
+        } catch (e) {
+          console.error('Error al cargar proyectos en asignación:', e);
+        }
+      }
 
       loadAndSyncUsers();
     }

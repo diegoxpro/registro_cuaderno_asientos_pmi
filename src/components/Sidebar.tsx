@@ -31,6 +31,7 @@ export default function Sidebar({ collapsed: externalCollapsed, onToggleCollapse
   const [isUserMgmtOpen, setIsUserMgmtOpen] = useState(false);
   const [userRole, setUserRole] = useState('ADMINISTRADOR');
   const [userName, setUserName] = useState('');
+  const [cuadernoHref, setCuadernoHref] = useState('/proyectos');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -38,8 +39,25 @@ export default function Sidebar({ collapsed: externalCollapsed, onToggleCollapse
       if (role) setUserRole(role.toUpperCase());
       const name = localStorage.getItem('user_name');
       if (name) setUserName(name);
+
+      const lastId = localStorage.getItem('last_selected_project_id');
+      if (lastId) {
+        setCuadernoHref(`/proyectos/${lastId}`);
+        return;
+      }
+      const savedProjects = localStorage.getItem('app_projects_list');
+      if (savedProjects) {
+        try {
+          const parsed = JSON.parse(savedProjects);
+          if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.id) {
+            setCuadernoHref(`/proyectos/${parsed[0].id}`);
+            return;
+          }
+        } catch (e) {}
+      }
+      setCuadernoHref('/proyectos');
     }
-  }, []);
+  }, [pathname]);
 
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
@@ -63,7 +81,7 @@ export default function Sidebar({ collapsed: externalCollapsed, onToggleCollapse
     { href: '/proyectos', label: 'Cartera de proyectos', icon: FolderKanban },
     ...(isAdmin ? [{ href: '/asignacion-proyectos', label: 'Asignación de proyectos', icon: UserCheck }] : []),
     { href: '/storyboard', label: 'Storyboard de proyectos', icon: Workflow },
-    { href: '/proyectos/p-2548912', label: 'Cuaderno digital', icon: BookOpen },
+    { href: cuadernoHref, label: 'Cuaderno digital', icon: BookOpen },
     { href: '/reportes', label: 'Generación de reportes', icon: BarChart3 },
     { href: '/archivos', label: 'Archivos de Cuadernos', icon: Archive },
   ];
