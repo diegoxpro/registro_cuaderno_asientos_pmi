@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { findServerUser } from '@/lib/serverUserStorage';
 import { INITIAL_REGISTERED_USERS } from '@/lib/users';
 
 export async function POST(request: Request) {
@@ -15,62 +15,28 @@ export async function POST(request: Request) {
     }
 
     const cleanId = String(identifier).trim();
-    const cleanPassword = String(password);
+    const cleanPassword = String(password).trim();
 
-    // 1. Intentar validar contra Prisma DB
-    let userFromDb = null;
-    try {
-      userFromDb = await prisma.user.findFirst({
-        where: {
-          OR: [
-            { dni: cleanId },
-            { usuario: { equals: cleanId, mode: 'insensitive' } },
-            { email: { equals: cleanId, mode: 'insensitive' } },
-          ],
-        },
+    // 1. Buscar en el almacén unificado del servidor (Prisma DB + storage/users.json)
+    let foundUser = await findServerUser(cleanId);
+
+    // 2. Si no se encontró en el servidor, verificar usuarios semilla de respaldo
+    if (!foundUser) {
+      const fallback = INITIAL_REGISTERED_USERS.find((u) => {
+        const uDni = (u.dni || '').trim().toLowerCase();
+        const uUser = (u.usuario || '').trim().toLowerCase();
+        const uMail = (u.email || '').trim().toLowerCase();
+        const idLower = cleanId.toLowerCase();
+        return uDni === idLower || uUser === idLower || uMail === idLower;
       });
-    } catch (dbErr) {
-      console.warn('DB indisponible, usando base local fallback:', dbErr);
-    }
 
-    if (userFromDb) {
-      if (userFromDb.contrasena !== cleanPassword) {
-        return NextResponse.json(
-          {
-            success: false,
-            errorType: 'INVALID_PASSWORD',
-            error: 'La contraseña ingresada es incorrecta. Por favor intente nuevamente.',
-          },
-          { status: 401 }
-        );
+      if (fallback) {
+        foundUser = fallback;
       }
-
-      return NextResponse.json({
-        success: true,
-        user: {
-          id: userFromDb.id,
-          nombre: userFromDb.nombre,
-          apellidos: userFromDb.apellidos,
-          dni: userFromDb.dni,
-          cip: userFromDb.cip,
-          email: userFromDb.email,
-          telefono: userFromDb.telefono,
-          modContrato: userFromDb.modContrato,
-          usuario: userFromDb.usuario,
-          rol: userFromDb.perfilAcceso,
-        },
-      });
     }
 
-    // 2. Fallback a usuarios semilla/locales
-    const fallbackUser = INITIAL_REGISTERED_USERS.find(
-      (u) =>
-        u.dni.toLowerCase() === cleanId.toLowerCase() ||
-        u.usuario.toLowerCase() === cleanId.toLowerCase() ||
-        u.email.toLowerCase() === cleanId.toLowerCase()
-    );
-
-    if (!fallbackUser) {
+    // 3. Si no existe en ningún origen de datos
+    if (!foundUser) {
       return NextResponse.json(
         {
           success: false,
@@ -81,7 +47,9 @@ export async function POST(request: Request) {
       );
     }
 
-    if (fallbackUser.contrasena !== cleanPassword) {
+    // 4. Validar contraseña
+    const storedPassword = String(foundUser.contrasena || '').trim();
+    if (storedPassword !== cleanPassword) {
       return NextResponse.json(
         {
           success: false,
@@ -92,9 +60,23 @@ export async function POST(request: Request) {
       );
     }
 
+    // 5. Retornar sesión exitosa
     return NextResponse.json({
       success: true,
-      user: fallbackUser,
+      user: {
+        id: foundUser.id,
+        nombre: foundUser.nombre,
+        apellidos: foundUser.apellidos,
+        dni: foundUser.dni,
+        cip: foundUser.cip,
+        email: foundUser.email,
+        telefono: foundUser.telefono,
+        modContrato: foundUser.modContrato,
+        usuario: foundUser.usuario,
+        rol: foundUser.rol,
+        rolDisplay: foundUser.rolDisplay,
+        otpEnabled: foundUser.otpEnabled,
+      },
     });
   } catch (error) {
     console.error('Error en API auth/login:', error);

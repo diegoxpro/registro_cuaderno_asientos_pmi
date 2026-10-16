@@ -41,25 +41,32 @@ export default function CleanStorageInitializer() {
           }
         });
 
-        // 6. Dejar ÚNICAMENTE al usuario Administrador en la lista de usuarios registrados
-        localStorage.setItem('app_registered_users', JSON.stringify(INITIAL_REGISTERED_USERS));
-
-        // 7. Si el usuario actual en sesión no es el administrador, resetear sesión al Administrador
-        const currentDni = localStorage.getItem('user_dni');
-        if (currentDni && currentDni !== '70123456') {
-          localStorage.setItem('user_role', 'ADMINISTRADOR');
-          localStorage.setItem('user_dni', '70123456');
-          localStorage.setItem('user_name', 'Carlos Mendoza Silva');
-          localStorage.setItem('user_account', 'admin');
-          localStorage.setItem('user_id', 'u-1');
-          localStorage.setItem('user_email', 'administrador@regionlambayeque.gob.pe');
+        // 6. Asegurar que los usuarios iniciales estén presentes sin borrar los registrados por el usuario
+        const existingUsersStr = localStorage.getItem('app_registered_users');
+        if (!existingUsersStr) {
+          localStorage.setItem('app_registered_users', JSON.stringify(INITIAL_REGISTERED_USERS));
+        } else {
+          try {
+            const existingUsers = JSON.parse(existingUsersStr);
+            if (Array.isArray(existingUsers)) {
+              const idSet = new Set(existingUsers.map((u: any) => (u.usuario || u.dni || '').toLowerCase()));
+              const missing = INITIAL_REGISTERED_USERS.filter(
+                (seed) => !idSet.has(seed.usuario.toLowerCase()) && !idSet.has(seed.dni.toLowerCase())
+              );
+              if (missing.length > 0) {
+                localStorage.setItem('app_registered_users', JSON.stringify([...existingUsers, ...missing]));
+              }
+            }
+          } catch (e) {
+            localStorage.setItem('app_registered_users', JSON.stringify(INITIAL_REGISTERED_USERS));
+          }
         }
 
-        // 8. Marcar versión de datos limpia
+        // 7. Marcar versión de datos limpia
         localStorage.setItem('app_data_version', CLEAN_VERSION);
       }
 
-      // Salvaguarda continua: asegurar que la lista de usuarios siempre tenga al menos al Administrador
+      // Salvaguarda continua: asegurar que la lista de usuarios exista
       const savedUsers = localStorage.getItem('app_registered_users');
       if (!savedUsers) {
         localStorage.setItem('app_registered_users', JSON.stringify(INITIAL_REGISTERED_USERS));

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "u-1",
+    "nombre": "Carlos",
+    "apellidos": "Mendoza Silva",
+    "dni": "70123456",
+    "cip": "CIP-112233",
+    "email": "administrador@regionlambayeque.gob.pe",
+    "telefono": "912345678",
+    "modContrato": "Nombrado 276",
+    "usuario": "admin",
+    "contrasena": "admin123",
+    "rol": "ADMINISTRADOR",
+    "rolDisplay": "Administrador",
+    "otpEnabled": true
+  },
+  {
+    "id": "u-jleon",
+    "nombre": "Jorge",
+    "apellidos": "León",
+    "dni": "74859612",
+    "cip": "CIP-234567",
+    "email": "jleon@regionlambayeque.gob.pe",
+    "telefono": "987654321",
+    "modContrato": "CAS",
+    "usuario": "jleon",
+    "contrasena": "Jleon26",
+    "rol": "RESIDENTE",
+    "rolDisplay": "Residente",
+    "otpEnabled": false
+  }
+]

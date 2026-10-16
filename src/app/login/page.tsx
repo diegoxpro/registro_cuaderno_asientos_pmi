@@ -15,8 +15,6 @@ import {
   RefreshCw, 
   ArrowLeft, 
   Mail, 
-  Smartphone,
-  Copy,
   Sparkles
 } from 'lucide-react';
 import { validateLoginCredentials, AppUser } from '@/lib/users';
@@ -42,7 +40,6 @@ export default function LoginPage() {
   const [resendCooldown, setResendCooldown] = useState<number>(0);
   const [isResending, setIsResending] = useState<boolean>(false);
   const [otpSentEmail, setOtpSentEmail] = useState<string>('');
-  const [copySuccess, setCopySuccess] = useState<boolean>(false);
 
   // Status & Messaging State
   const [loading, setLoading] = useState(false);
@@ -82,6 +79,29 @@ export default function LoginPage() {
     }
   }, [step]);
 
+  // Sincronizar usuarios desde el servidor al cargar la pantalla de login
+  useEffect(() => {
+    fetch('/api/users')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.success && Array.isArray(data.users) && data.users.length > 0) {
+          if (typeof window !== 'undefined') {
+            try {
+              const savedStr = localStorage.getItem('app_registered_users');
+              const localUsers: AppUser[] = savedStr ? JSON.parse(savedStr) : [];
+              const userMap = new Map<string, AppUser>();
+              localUsers.forEach((u) => userMap.set((u.usuario || u.dni || '').toLowerCase(), u));
+              data.users.forEach((u: AppUser) => userMap.set((u.usuario || u.dni || '').toLowerCase(), u));
+              localStorage.setItem('app_registered_users', JSON.stringify(Array.from(userMap.values())));
+            } catch (err) {
+              console.warn('Error al sincronizar usuarios en login:', err);
+            }
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Paso 1: Manejar Validación de Credenciales
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,29 +118,35 @@ export default function LoginPage() {
     try {
       let validatedUser: AppUser | null = null;
 
-      // 1. Validar primero con helper local
-      const localResult = validateLoginCredentials(dni, password);
+      // 1. Intentar primero con el endpoint API auth/login del servidor
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifier: dni, password }),
+        });
+        const apiData = await res.json();
 
-      if (localResult.success && localResult.user) {
-        validatedUser = localResult.user;
-      } else {
-        // 2. Intentar con endpoint API auth/login
-        try {
-          const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ identifier: dni, password }),
-          });
-          const apiData = await res.json();
-
-          if (res.ok && apiData.success && apiData.user) {
-            validatedUser = apiData.user;
+        if (res.ok && apiData.success && apiData.user) {
+          validatedUser = apiData.user;
+        } else if (apiData.error) {
+          // Si el servidor dio un error específico de contraseña incorrecta o usuario no registrado,
+          // intentamos también validar con el helper local de respaldo
+          const localResult = validateLoginCredentials(dni, password);
+          if (localResult.success && localResult.user) {
+            validatedUser = localResult.user;
           } else {
             setErrorMessage(apiData.error || localResult.message || 'Credenciales inválidas.');
             setLoading(false);
             return;
           }
-        } catch {
+        }
+      } catch {
+        // En caso de falla de red, validar contra almacenamiento local
+        const localResult = validateLoginCredentials(dni, password);
+        if (localResult.success && localResult.user) {
+          validatedUser = localResult.user;
+        } else {
           setErrorMessage(localResult.message || 'Credenciales de acceso incorrectas.');
           setLoading(false);
           return;
@@ -128,6 +154,25 @@ export default function LoginPage() {
       }
 
       if (validatedUser) {
+        // Garantizar que el usuario autenticado quede registrado en localStorage para esta sesión
+        if (typeof window !== 'undefined') {
+          try {
+            const savedStr = localStorage.getItem('app_registered_users');
+            let currentList: AppUser[] = [];
+            if (savedStr) {
+              const parsed = JSON.parse(savedStr);
+              if (Array.isArray(parsed)) currentList = parsed;
+            }
+            const exists = currentList.some((u) => u.dni === validatedUser!.dni || u.usuario === validatedUser!.usuario);
+            if (!exists) {
+              currentList.push(validatedUser);
+              localStorage.setItem('app_registered_users', JSON.stringify(currentList));
+            }
+          } catch (e) {
+            console.warn('Error al guardar usuario en localStorage:', e);
+          }
+        }
+
         // Verificar si la cuenta tiene activo el requerimiento 2FA OTP
         if (validatedUser.otpEnabled === false) {
           completeLogin(validatedUser);
@@ -300,15 +345,6 @@ export default function LoginPage() {
     setIsResending(false);
   };
 
-  // Autocompletar Demo OTP en 1 Clic
-  const handleQuickFillDemoOtp = () => {
-    if (!generatedOtpCode) return;
-    const digits = generatedOtpCode.split('');
-    setOtpDigits(digits);
-    setErrorMessage(null);
-    setCopySuccess(true);
-    setTimeout(() => setCopySuccess(false), 2000);
-  };
 
   // Finalizar Login y Guardar Sesión
   const completeLogin = (user: AppUser) => {
@@ -551,40 +587,6 @@ export default function LoginPage() {
                 </p>
               </div>
 
-              {/* Código OTP de demostración (modo sin SMTP) */}
-              {generatedOtpCode && !successUser && (
-                <div className="bg-amber-50 p-3 rounded-lg border border-amber-300 text-xs space-y-2">
-                  <div className="flex items-center space-x-1.5 text-amber-800 font-bold">
-                    <Smartphone className="w-4 h-4" />
-                    <span>Modo Demostración — Código OTP generado:</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-2xl font-extrabold text-[#91000A] tracking-[8px] bg-white px-4 py-1.5 rounded border-2 border-dashed border-[#91000A]/40">
-                      {generatedOtpCode}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleQuickFillDemoOtp}
-                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-[#91000A] text-white rounded text-xs font-bold hover:bg-[#B71C1C] transition-colors"
-                    >
-                      {copySuccess ? (
-                        <>
-                          <CheckCircle2 className="w-3.5 h-3.5 text-green-300" />
-                          <span>¡Copiado!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Autocompletar</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-amber-700">
-                    ⚠️ El servidor SMTP no está configurado. Use el botón &quot;Autocompletar&quot; para rellenar el código automáticamente.
-                  </p>
-                </div>
-              )}
 
               {/* Casilleros de los 6 dígitos OTP */}
               <div>

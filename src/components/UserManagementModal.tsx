@@ -57,6 +57,20 @@ const INITIAL_USERS: UserRecord[] = [
     rol: 'Administrador',
     otpEnabled: true,
   },
+  {
+    id: 'u-jleon',
+    nombre: 'Jorge',
+    apellidos: 'León',
+    dni: '74859612',
+    cip: 'CIP-234567',
+    email: 'jleon@regionlambayeque.gob.pe',
+    telefono: '987654321',
+    modContrato: 'CAS',
+    usuario: 'jleon',
+    contrasena: 'Jleon26',
+    rol: 'Residente',
+    otpEnabled: false,
+  },
 ];
 
 interface Props {
@@ -79,7 +93,7 @@ export default function UserManagementModal({ isOpen, onClose }: Props) {
   // State del modal de edición / creación
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  const [userToDelete, setUserToDelete] = useState<{ id: string; name: string; email?: string; dni?: string } | null>(null);
+  const [userToDelete, setUserToDelete] = useState<{ id: string; name: string; email?: string; dni?: string; usuario?: string } | null>(null);
 
   // Form State
   const [nombre, setNombre] = useState('');
@@ -94,15 +108,39 @@ export default function UserManagementModal({ isOpen, onClose }: Props) {
   const [rol, setRol] = useState<UserRecord['rol']>('Residente');
   const [otpEnabled, setOtpEnabled] = useState(true);
 
-  React.useEffect(() => {
-    if (isOpen) {
-      const config = getSmtpConfig();
-      setSmtpConfig(config);
-      setSendEmailOnSave(config.autoSendOnRegister);
+  // Sincronizar usuarios desde el servidor (/api/users)
+  const syncUsersFromServer = React.useCallback(async () => {
+    try {
+      const res = await fetch('/api/users');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.users) && data.users.length > 0) {
+          const mapped: UserRecord[] = data.users.map((u: Record<string, unknown>) => ({
+            id: String(u.id || `u-${Date.now()}`),
+            nombre: String(u.nombre || ''),
+            apellidos: String(u.apellidos || ''),
+            dni: String(u.dni || ''),
+            cip: u.cip ? String(u.cip) : undefined,
+            email: String(u.email || ''),
+            telefono: String(u.telefono || ''),
+            modContrato: u.modContrato ? String(u.modContrato) : undefined,
+            usuario: String(u.usuario || u.dni || ''),
+            contrasena: String(u.contrasena || '123456'),
+            rol: (u.rolDisplay as UserRecord['rol']) || (u.rol === 'ADMINISTRADOR' ? 'Administrador' : u.rol === 'SUPERVISOR_DE_OBRA' ? 'Supervisor de obra' : u.rol === 'JEFE_DE_PROYECTO' ? 'Jefe de Proyecto' : u.rol === 'SUPERVISOR_DE_PROYECTO' ? 'Supervisor de Proyecto' : 'Residente'),
+            otpEnabled: u.otpEnabled !== undefined ? Boolean(u.otpEnabled) : true,
+          }));
+          setUsers(mapped);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('app_registered_users', JSON.stringify(data.users));
+          }
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Servidor /api/users no disponible temporalmente, usando localStorage:', e);
     }
-  }, [isOpen]);
 
-  React.useEffect(() => {
+    // Fallback a localStorage si el servidor no responde
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('app_registered_users');
       if (saved) {
@@ -131,6 +169,19 @@ export default function UserManagementModal({ isOpen, onClose }: Props) {
       }
     }
   }, []);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      const config = getSmtpConfig();
+      setSmtpConfig(config);
+      setSendEmailOnSave(config.autoSendOnRegister);
+      syncUsersFromServer();
+    }
+  }, [isOpen, syncUsersFromServer]);
+
+  React.useEffect(() => {
+    syncUsersFromServer();
+  }, [syncUsersFromServer]);
 
   const saveUsersToStorage = (updatedUsers: UserRecord[]) => {
     setUsers(updatedUsers);
@@ -321,6 +372,17 @@ export default function UserManagementModal({ isOpen, onClose }: Props) {
     saveUsersToStorage(updatedList);
     setIsFormOpen(false);
 
+    // Persistir y sincronizar inmediatamente con el servidor
+    try {
+      await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(savedUser),
+      });
+    } catch (apiErr) {
+      console.warn('No se pudo sincronizar usuario con el servidor en segundo plano:', apiErr);
+    }
+
     // Enviar correo si está activado
     if (sendEmailOnSave) {
       if (isSmtpConfigured(smtpConfig)) {
@@ -328,13 +390,13 @@ export default function UserManagementModal({ isOpen, onClose }: Props) {
       } else {
         setNotification({
           type: 'info',
-          message: 'Usuario guardado correctamente. Sin embargo, el servidor SMTP no está configurado para enviar correos automáticamente.',
+          message: 'Usuario guardado correctamente en el servidor. Sin embargo, el servidor SMTP no está configurado para enviar correos automáticamente.',
         });
       }
     } else {
       setNotification({
         type: 'success',
-        message: editingUserId ? 'Datos de usuario actualizados correctamente.' : 'Nuevo usuario registrado correctamente.',
+        message: editingUserId ? 'Datos de usuario actualizados correctamente en el servidor.' : 'Nuevo usuario registrado y guardado exitosamente en el servidor.',
       });
     }
   };
@@ -345,6 +407,7 @@ export default function UserManagementModal({ isOpen, onClose }: Props) {
       name: `${u.nombre} ${u.apellidos}`.trim(),
       email: u.email,
       dni: u.dni,
+      usuario: u.usuario,
     });
   };
 
@@ -358,7 +421,7 @@ export default function UserManagementModal({ isOpen, onClose }: Props) {
     );
     saveUsersToStorage(updatedList);
 
-    // Notificar al endpoint API para sincronizar con BD si está activa
+    // Notificar al endpoint API para eliminar del servidor y BD
     try {
       await fetch('/api/users/delete', {
         method: 'POST',
@@ -367,10 +430,11 @@ export default function UserManagementModal({ isOpen, onClose }: Props) {
           id: target.id,
           email: target.email,
           dni: target.dni,
+          usuario: target.usuario,
         }),
       });
     } catch (err) {
-      console.warn('Sincronización API no completada:', err);
+      console.warn('Sincronización de eliminación API no completada:', err);
     }
 
     setNotification({

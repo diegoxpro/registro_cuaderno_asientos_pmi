@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer';
 import { createOtpSession } from '@/lib/otp';
 import { generateOtpEmailHtml } from '@/lib/smtp';
 import { INITIAL_REGISTERED_USERS } from '@/lib/users';
+import { findServerUser } from '@/lib/serverUserStorage';
 
 export async function POST(request: Request) {
   try {
@@ -21,9 +22,9 @@ export async function POST(request: Request) {
     let targetNombre = nombre || 'Usuario';
     let targetApellidos = apellidos || '';
 
-    // Si no enviaron mail o nombre, buscar en usuarios semilla
+    // Si no enviaron mail o nombre, buscar en usuarios del servidor o semilla
     if (!targetEmail) {
-      const found = INITIAL_REGISTERED_USERS.find(
+      const found = (await findServerUser(cleanId)) || INITIAL_REGISTERED_USERS.find(
         (u) => u.dni.toLowerCase() === cleanId.toLowerCase() || u.usuario.toLowerCase() === cleanId.toLowerCase()
       );
       if (found) {
@@ -93,11 +94,10 @@ export async function POST(request: Request) {
       emailSent,
       emailErrorMessage: emailSent ? undefined : emailErrorMessage,
       email: targetEmail,
-      code: otpRecord.code, // Retornado para el modo de prueba/demostración visual
       expiresAt: otpRecord.expiresAt,
       message: emailSent
         ? `Código de verificación OTP despachado exitosamente a ${targetEmail}`
-        : `Código OTP generado [${otpRecord.code}]. Servidor SMTP sin configurar o en modo demostración.`,
+        : `Código de verificación OTP generado para ${targetEmail}.`,
     });
   } catch (error) {
     console.error('Error en API auth/otp/send:', error);

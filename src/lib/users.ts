@@ -30,6 +30,21 @@ export const INITIAL_REGISTERED_USERS: AppUser[] = [
     rolDisplay: 'Administrador',
     otpEnabled: true,
   },
+  {
+    id: 'u-jleon',
+    nombre: 'Jorge',
+    apellidos: 'León',
+    dni: '74859612',
+    cip: 'CIP-234567',
+    email: 'jleon@regionlambayeque.gob.pe',
+    telefono: '987654321',
+    modContrato: 'CAS',
+    usuario: 'jleon',
+    contrasena: 'Jleon26',
+    rol: 'RESIDENTE',
+    rolDisplay: 'Residente',
+    otpEnabled: false,
+  },
 ];
 
 export function getRegisteredUsers(): AppUser[] {
@@ -41,7 +56,12 @@ export function getRegisteredUsers(): AppUser[] {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        // Garantizar que los usuarios semilla siempre estén presentes
+        const idSet = new Set(parsed.map((u: AppUser) => (u.usuario || u.dni || '').toLowerCase()));
+        const missingSeeds = INITIAL_REGISTERED_USERS.filter(
+          (seed) => !idSet.has(seed.usuario.toLowerCase()) && !idSet.has(seed.dni.toLowerCase())
+        );
+        return [...parsed, ...missingSeeds];
       }
     }
   } catch (e) {
@@ -68,11 +88,15 @@ export interface ValidationResult {
 }
 
 export function validateLoginCredentials(identifier: string, passwordAttempt: string): ValidationResult {
-  const cleanId = identifier.trim().toLowerCase();
+  const cleanId = String(identifier || '').trim().toLowerCase();
+  const cleanPassword = String(passwordAttempt || '').trim();
   const users = getRegisteredUsers();
 
   const foundUser = users.find(
-    (u) => u.dni.toLowerCase() === cleanId || u.usuario.toLowerCase() === cleanId || u.email.toLowerCase() === cleanId
+    (u) =>
+      (u.dni && u.dni.trim().toLowerCase() === cleanId) ||
+      (u.usuario && u.usuario.trim().toLowerCase() === cleanId) ||
+      (u.email && u.email.trim().toLowerCase() === cleanId)
   );
 
   if (!foundUser) {
@@ -83,7 +107,7 @@ export function validateLoginCredentials(identifier: string, passwordAttempt: st
     };
   }
 
-  if (foundUser.contrasena !== passwordAttempt) {
+  if (String(foundUser.contrasena || '').trim() !== cleanPassword) {
     return {
       success: false,
       errorType: 'INVALID_PASSWORD',
