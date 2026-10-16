@@ -83,6 +83,20 @@ function markDbFailure() {
   lastDbAttempt = Date.now();
 }
 
+// Helper para obtener el valor real de otpEnabled desde almacenamiento persistente o semillas
+function lookupOtpEnabled(uUser: string, uDni: string, fileUsers: AppUser[]): boolean {
+  const match = fileUsers.find(
+    (fu) =>
+      (fu.usuario && fu.usuario.toLowerCase() === (uUser || '').toLowerCase()) ||
+      (fu.dni && fu.dni.toLowerCase() === (uDni || '').toLowerCase())
+  ) || INITIAL_REGISTERED_USERS.find(
+    (seed) =>
+      (seed.usuario && seed.usuario.toLowerCase() === (uUser || '').toLowerCase()) ||
+      (seed.dni && seed.dni.toLowerCase() === (uDni || '').toLowerCase())
+  );
+  return match?.otpEnabled !== undefined ? Boolean(match.otpEnabled) : false;
+}
+
 // Obtener todos los usuarios del servidor (Sincronizado con Prisma si está disponible)
 export async function getServerUsers(): Promise<AppUser[]> {
   const fileUsers = await readUsersFile();
@@ -120,7 +134,7 @@ export async function getServerUsers(): Promise<AppUser[]> {
             contrasena: du.contrasena,
             rol: normalizeRole(du.perfilAcceso),
             rolDisplay: roleToDisplay(du.perfilAcceso),
-            otpEnabled: true,
+            otpEnabled: lookupOtpEnabled(du.usuario, du.dni, fileUsers),
           };
           const key = (mapped.usuario || mapped.dni).toLowerCase();
           userMap.set(key, mapped);
@@ -155,6 +169,7 @@ export async function findServerUser(identifier: string): Promise<AppUser | null
 
       if (userFromDb) {
         markDbSuccess();
+        const fileUsers = await readUsersFile();
         return {
           id: userFromDb.id,
           nombre: userFromDb.nombre,
@@ -168,7 +183,7 @@ export async function findServerUser(identifier: string): Promise<AppUser | null
           contrasena: userFromDb.contrasena,
           rol: normalizeRole(userFromDb.perfilAcceso),
           rolDisplay: roleToDisplay(userFromDb.perfilAcceso),
-          otpEnabled: true,
+          otpEnabled: lookupOtpEnabled(userFromDb.usuario, userFromDb.dni, fileUsers),
         };
       }
     } catch {

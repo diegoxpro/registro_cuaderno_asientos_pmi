@@ -28,7 +28,7 @@ export const INITIAL_REGISTERED_USERS: AppUser[] = [
     contrasena: 'admin123',
     rol: 'ADMINISTRADOR',
     rolDisplay: 'Administrador',
-    otpEnabled: true,
+    otpEnabled: false,
   },
   {
     id: 'u-jleon',

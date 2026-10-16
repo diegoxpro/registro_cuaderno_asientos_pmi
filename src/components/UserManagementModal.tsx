@@ -55,7 +55,7 @@ const INITIAL_USERS: UserRecord[] = [
     usuario: 'admin',
     contrasena: 'admin123',
     rol: 'Administrador',
-    otpEnabled: true,
+    otpEnabled: false,
   },
   {
     id: 'u-jleon',
