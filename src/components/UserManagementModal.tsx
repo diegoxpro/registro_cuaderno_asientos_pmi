@@ -49,7 +49,7 @@ const INITIAL_USERS: UserRecord[] = [
     apellidos: 'Mendoza Silva',
     dni: '70123456',
     cip: 'CIP-112233',
-    email: 'administrador@regionlambayeque.gob.pe',
+    email: 'diegomartingv@gmail.com',
     telefono: '912345678',
     modContrato: 'Nombrado 276',
     usuario: 'admin',

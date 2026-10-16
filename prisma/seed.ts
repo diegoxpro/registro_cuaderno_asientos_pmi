@@ -20,7 +20,7 @@ async function main() {
       dni: '70123456',
       nombre: 'Carlos',
       apellidos: 'Mendoza Silva',
-      email: 'administrador@regionlambayeque.gob.pe',
+      email: 'diegomartingv@gmail.com',
       telefono: '912345678',
       usuario: 'admin',
       modContrato: 'Nombrado 276',
