@@ -1,6 +1,6 @@
 [
   {
-    "id": "u-1",
+    "id": "d0c7a79d-55a2-4ccd-bbe3-3de24f325de0",
     "nombre": "Carlos",
     "apellidos": "Mendoza Silva",
     "dni": "70123456",
@@ -16,17 +16,47 @@
   },
   {
     "id": "u-jleon",
-    "nombre": "Jorge",
+    "nombre": "Juver",
     "apellidos": "León",
     "dni": "74859612",
     "cip": "CIP-234567",
-    "email": "jleon@regionlambayeque.gob.pe",
-    "telefono": "987654321",
-    "modContrato": "CAS",
+    "email": "juverleonh@gmail.com",
+    "telefono": "948322461",
+    "modContrato": "Locación de Servicios",
     "usuario": "jleon",
     "contrasena": "Jleon26",
-    "rol": "RESIDENTE",
-    "rolDisplay": "Residente",
+    "rol": "ADMINISTRADOR",
+    "rolDisplay": "Administrador",
+    "otpEnabled": false
+  },
+  {
+    "id": "u-1792164012349",
+    "nombre": "ROBERTO CARLOS",
+    "apellidos": "CHAPOÑAN FARROÑAN",
+    "dni": "43135644",
+    "cip": "CIP-107596",
+    "email": "robert_ic_06@hotmail.com",
+    "telefono": "979895241",
+    "modContrato": "Terceros",
+    "usuario": "rchapoñan",
+    "contrasena": "Rchapoñan26",
+    "rol": "SUPERVISOR_DE_PROYECTO",
+    "rolDisplay": "Supervisor de Proyecto",
+    "otpEnabled": false
+  },
+  {
+    "id": "u-1792163539502",
+    "nombre": "MICHAEL ANGEL",
+    "apellidos": "SANTOS CAVALHO",
+    "dni": "10064837",
+    "cip": "CAP-5816",
+    "email": "jp_coar@inarco.com.pe",
+    "telefono": "980673279",
+    "modContrato": "Terceros",
+    "usuario": "msantos",
+    "contrasena": "Msantos26",
+    "rol": "JEFE_DE_PROYECTO",
+    "rolDisplay": "Jefe de Proyecto",
     "otpEnabled": false
   }
 ]

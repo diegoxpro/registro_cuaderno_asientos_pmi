@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { prisma } from '@/lib/prisma';
 import { MockProject } from '@/lib/mockData';
+import { fixUtf8Mojibake } from '@/lib/utf8Utils';
 
 const STORAGE_DIR = path.join(process.cwd(), 'storage');
 const PROJECTS_FILE = path.join(STORAGE_DIR, 'projects.json');
@@ -104,7 +105,20 @@ export async function getServerProjects(filters?: { userDni?: string; role?: str
   const fileProjects = await readProjectsFile();
   for (const p of fileProjects) {
     if (p.cui || p.id) {
-      projectMap.set(p.cui || p.id, p);
+      projectMap.set(p.cui || p.id, {
+        ...p,
+        nombre: fixUtf8Mojibake(p.nombre),
+        fase: fixUtf8Mojibake(p.fase),
+        entidadEjecutora: fixUtf8Mojibake(p.entidadEjecutora),
+        entidadSupervisora: p.entidadSupervisora ? fixUtf8Mojibake(p.entidadSupervisora) : undefined,
+        distrito: p.distrito ? fixUtf8Mojibake(p.distrito) : undefined,
+        localidad: p.localidad ? fixUtf8Mojibake(p.localidad) : undefined,
+        residenteNombre: p.residenteNombre ? fixUtf8Mojibake(p.residenteNombre) : null,
+        supervisorNombre: p.supervisorNombre ? fixUtf8Mojibake(p.supervisorNombre) : null,
+        supervisorEmpresa: p.supervisorEmpresa ? fixUtf8Mojibake(p.supervisorEmpresa) : undefined,
+        provincia: p.provincia ? fixUtf8Mojibake(p.provincia) : 'Chiclayo',
+        estadoObra: fixUtf8Mojibake(p.estadoObra),
+      });
     }
   }
 
@@ -133,36 +147,36 @@ export async function getServerProjects(filters?: { userDni?: string; role?: str
         const mapped: MockProject = {
           id: dp.id,
           cui: dp.cui,
-          nombre: dp.nombre,
-          nConvenio: dp.nConvenio,
+          nombre: fixUtf8Mojibake(dp.nombre),
+          nConvenio: fixUtf8Mojibake(dp.nConvenio),
           modalidad: dp.modalidad || 'OxI LEY 29230',
-          fase: dp.fase || 'Ejecución Física',
-          entidadEjecutora: dp.entidadEjecutora,
-          entidadSupervisora: dp.entidadSupervisora || undefined,
+          fase: fixUtf8Mojibake(dp.fase || 'Ejecución Física'),
+          entidadEjecutora: fixUtf8Mojibake(dp.entidadEjecutora),
+          entidadSupervisora: dp.entidadSupervisora ? fixUtf8Mojibake(dp.entidadSupervisora) : undefined,
           montoInversion: dp.montoInversion || undefined,
           monto: dp.monto || dp.montoInversion || undefined,
           plazoDias: dp.plazoDias || undefined,
           plazo: dp.plazo || dp.plazoDias || undefined,
           fechaInicio: dp.fechaInicio || undefined,
-          distrito: dp.distrito || undefined,
-          localidad: dp.localidad || undefined,
-          residenteNombre: dp.residenteNombre,
+          distrito: dp.distrito ? fixUtf8Mojibake(dp.distrito) : undefined,
+          localidad: dp.localidad ? fixUtf8Mojibake(dp.localidad) : undefined,
+          residenteNombre: dp.residenteNombre ? fixUtf8Mojibake(dp.residenteNombre) : null,
           residenteCIP: dp.residenteCIP,
           residenteDni: dp.residenteDni || undefined,
           residenteCelular: dp.residenteCelular || undefined,
           residenteEmail: dp.residenteEmail || undefined,
-          supervisorNombre: dp.supervisorNombre,
+          supervisorNombre: dp.supervisorNombre ? fixUtf8Mojibake(dp.supervisorNombre) : null,
           supervisorCIP: dp.supervisorCIP,
           supervisorDni: dp.supervisorDni || undefined,
-          supervisorEmpresa: dp.supervisorEmpresa || undefined,
+          supervisorEmpresa: dp.supervisorEmpresa ? fixUtf8Mojibake(dp.supervisorEmpresa) : undefined,
           supervisorEmail: dp.supervisorEmail || undefined,
           estado: normalizeState(dp.estado),
-          provincia: dp.provincia || 'Chiclayo',
-          estadoObra: dp.estadoObra || 'En Ejecución',
+          provincia: dp.provincia ? fixUtf8Mojibake(dp.provincia) : 'Chiclayo',
+          estadoObra: fixUtf8Mojibake(dp.estadoObra || 'En Ejecución'),
           asientosCount: dp.asientos?.length || 0,
           archivado: Boolean(dp.archivado),
           fechaArchivado: dp.fechaArchivado || undefined,
-          archivadoPor: dp.archivadoPor || undefined,
+          archivadoPor: dp.archivadoPor ? fixUtf8Mojibake(dp.archivadoPor) : undefined,
         };
 
         projectMap.set(mapped.cui || mapped.id, mapped);
@@ -232,14 +246,14 @@ export async function saveServerProject(projectData: Partial<MockProject>): Prom
     throw new Error('El CUI del proyecto es obligatorio.');
   }
 
-  const cleanNombre = String(projectData.nombre || '').trim().toUpperCase() || 'PROYECTO DE INVERSIÓN';
-  const cleanConvenio = String(projectData.nConvenio || '').trim() || `CONVENIO OXI-${cleanCui}`;
-  const cleanModalidad = String(projectData.modalidad || 'OxI LEY 29230').trim();
-  const cleanFase = String(projectData.fase || 'Ejecución Física').trim();
-  const cleanEjecutora = String(projectData.entidadEjecutora || 'Entidad Ejecutora S.A.C.').trim();
+  const cleanNombre = fixUtf8Mojibake(String(projectData.nombre || '').trim().toUpperCase() || 'PROYECTO DE INVERSIÓN');
+  const cleanConvenio = fixUtf8Mojibake(String(projectData.nConvenio || '').trim() || `CONVENIO OXI-${cleanCui}`);
+  const cleanModalidad = fixUtf8Mojibake(String(projectData.modalidad || 'OxI LEY 29230').trim());
+  const cleanFase = fixUtf8Mojibake(String(projectData.fase || 'Ejecución Física').trim());
+  const cleanEjecutora = fixUtf8Mojibake(String(projectData.entidadEjecutora || 'Entidad Ejecutora S.A.C.').trim());
   const cleanEstado = normalizeState(projectData.estado);
-  const cleanProvincia = String(projectData.provincia || 'Chiclayo').trim();
-  const cleanEstadoObra = String(projectData.estadoObra || 'En Ejecución').trim();
+  const cleanProvincia = fixUtf8Mojibake(String(projectData.provincia || 'Chiclayo').trim());
+  const cleanEstadoObra = fixUtf8Mojibake(String(projectData.estadoObra || 'En Ejecución').trim());
 
   const allProjects = await readProjectsFile();
   const existingIndex = allProjects.findIndex((p) => p.cui === cleanCui || (projectData.id && p.id === projectData.id));
@@ -254,23 +268,23 @@ export async function saveServerProject(projectData: Partial<MockProject>): Prom
     modalidad: cleanModalidad,
     fase: cleanFase,
     entidadEjecutora: cleanEjecutora,
-    entidadSupervisora: projectData.entidadSupervisora ? String(projectData.entidadSupervisora).trim() : undefined,
+    entidadSupervisora: projectData.entidadSupervisora ? fixUtf8Mojibake(String(projectData.entidadSupervisora).trim()) : undefined,
     montoInversion: projectData.montoInversion ? String(projectData.montoInversion).trim() : undefined,
     monto: projectData.monto || projectData.montoInversion ? String(projectData.monto || projectData.montoInversion).trim() : undefined,
     plazoDias: projectData.plazoDias ? String(projectData.plazoDias).trim() : undefined,
     plazo: projectData.plazo || projectData.plazoDias ? String(projectData.plazo || projectData.plazoDias).trim() : undefined,
     fechaInicio: projectData.fechaInicio ? String(projectData.fechaInicio).trim() : undefined,
-    distrito: projectData.distrito ? String(projectData.distrito).trim() : undefined,
-    localidad: projectData.localidad ? String(projectData.localidad).trim() : undefined,
-    residenteNombre: projectData.residenteNombre ? String(projectData.residenteNombre).trim() : null,
+    distrito: projectData.distrito ? fixUtf8Mojibake(String(projectData.distrito).trim()) : undefined,
+    localidad: projectData.localidad ? fixUtf8Mojibake(String(projectData.localidad).trim()) : undefined,
+    residenteNombre: projectData.residenteNombre ? fixUtf8Mojibake(String(projectData.residenteNombre).trim()) : null,
     residenteCIP: projectData.residenteCIP ? String(projectData.residenteCIP).trim() : null,
     residenteDni: projectData.residenteDni ? String(projectData.residenteDni).trim() : null,
     residenteCelular: projectData.residenteCelular ? String(projectData.residenteCelular).trim() : null,
     residenteEmail: projectData.residenteEmail ? String(projectData.residenteEmail).trim() : null,
-    supervisorNombre: projectData.supervisorNombre ? String(projectData.supervisorNombre).trim() : null,
+    supervisorNombre: projectData.supervisorNombre ? fixUtf8Mojibake(String(projectData.supervisorNombre).trim()) : null,
     supervisorCIP: projectData.supervisorCIP ? String(projectData.supervisorCIP).trim() : null,
     supervisorDni: projectData.supervisorDni ? String(projectData.supervisorDni).trim() : null,
-    supervisorEmpresa: projectData.supervisorEmpresa ? String(projectData.supervisorEmpresa).trim() : null,
+    supervisorEmpresa: projectData.supervisorEmpresa ? fixUtf8Mojibake(String(projectData.supervisorEmpresa).trim()) : null,
     supervisorEmail: projectData.supervisorEmail ? String(projectData.supervisorEmail).trim() : null,
     estado: cleanEstado,
     provincia: cleanProvincia,
@@ -278,7 +292,7 @@ export async function saveServerProject(projectData: Partial<MockProject>): Prom
     asientosCount: projectData.asientosCount !== undefined ? Number(projectData.asientosCount) : (existingIndex >= 0 ? allProjects[existingIndex].asientosCount || 0 : 0),
     archivado: Boolean(projectData.archivado),
     fechaArchivado: projectData.fechaArchivado ? String(projectData.fechaArchivado).trim() : undefined,
-    archivadoPor: projectData.archivadoPor ? String(projectData.archivadoPor).trim() : undefined,
+    archivadoPor: projectData.archivadoPor ? fixUtf8Mojibake(String(projectData.archivadoPor).trim()) : undefined,
   };
 
   // 1. Guardar en almacenamiento de archivo persistente del servidor

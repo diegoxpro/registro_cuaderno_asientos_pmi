@@ -21,6 +21,8 @@ export default function RootLayout({
   return (
     <html lang="es">
       <head>
+        <meta charSet="utf-8" />
+        <meta httpEquiv="Content-Type" content="text/html; charset=utf-8" />
         <link rel="icon" href="/img/logo.png" type="image/png" />
         <link rel="shortcut icon" href="/img/logo.png" type="image/png" />
         <link rel="apple-touch-icon" href="/img/logo.png" />

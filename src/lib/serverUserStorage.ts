@@ -29,6 +29,9 @@ export function roleToDisplay(role: string): string {
   }
 }
 
+import { fixUtf8Mojibake } from '@/lib/utf8Utils';
+export { fixUtf8Mojibake };
+
 // Leer archivo de usuarios del servidor
 async function readUsersFile(): Promise<AppUser[]> {
   try {
@@ -135,14 +138,14 @@ export async function getServerUsers(): Promise<AppUser[]> {
 
           const mapped: AppUser = {
             id: du.id,
-            nombre: du.nombre,
-            apellidos: du.apellidos,
+            nombre: fixUtf8Mojibake(du.nombre),
+            apellidos: fixUtf8Mojibake(du.apellidos),
             dni: du.dni,
             cip: du.cip || undefined,
             email: du.email,
             telefono: du.telefono,
-            modContrato: du.modContrato || undefined,
-            usuario: du.usuario,
+            modContrato: du.modContrato ? fixUtf8Mojibake(du.modContrato) : undefined,
+            usuario: fixUtf8Mojibake(du.usuario),
             contrasena: du.contrasena,
             rol: effectiveRole,
             rolDisplay: effectiveDisplay,
@@ -196,14 +199,14 @@ export async function findServerUser(identifier: string): Promise<AppUser | null
 
         return {
           id: userFromDb.id,
-          nombre: userFromDb.nombre,
-          apellidos: userFromDb.apellidos,
+          nombre: fixUtf8Mojibake(userFromDb.nombre),
+          apellidos: fixUtf8Mojibake(userFromDb.apellidos),
           dni: userFromDb.dni,
           cip: userFromDb.cip || undefined,
           email: userFromDb.email,
           telefono: userFromDb.telefono,
-          modContrato: userFromDb.modContrato || undefined,
-          usuario: userFromDb.usuario,
+          modContrato: userFromDb.modContrato ? fixUtf8Mojibake(userFromDb.modContrato) : undefined,
+          usuario: fixUtf8Mojibake(userFromDb.usuario),
           contrasena: userFromDb.contrasena,
           rol: effectiveRole,
           rolDisplay: effectiveDisplay,
@@ -232,7 +235,7 @@ export async function saveServerUser(userData: Partial<AppUser> & { usuario?: st
   const allUsers = await getServerUsers();
   
   const cleanDni = String(userData.dni).trim();
-  const cleanUsuario = String(userData.usuario || userData.dni).trim();
+  const cleanUsuario = fixUtf8Mojibake(String(userData.usuario || userData.dni).trim());
   const cleanPassword = String(userData.contrasena).trim();
   const rolNorm = normalizeRole(userData.rol);
   const rolDisp = userData.rolDisplay || roleToDisplay(rolNorm);
@@ -247,13 +250,13 @@ export async function saveServerUser(userData: Partial<AppUser> & { usuario?: st
 
   const fullUser: AppUser = {
     id: userData.id || (existingIdx >= 0 ? allUsers[existingIdx].id : `u-${Date.now()}`),
-    nombre: String(userData.nombre || '').trim(),
-    apellidos: String(userData.apellidos || '').trim(),
+    nombre: fixUtf8Mojibake(String(userData.nombre || '').trim()),
+    apellidos: fixUtf8Mojibake(String(userData.apellidos || '').trim()),
     dni: cleanDni,
     cip: userData.cip ? String(userData.cip).trim() : undefined,
     email: String(userData.email || '').trim(),
     telefono: String(userData.telefono || '').trim(),
-    modContrato: userData.modContrato ? String(userData.modContrato).trim() : undefined,
+    modContrato: userData.modContrato ? fixUtf8Mojibake(String(userData.modContrato).trim()) : undefined,
     usuario: cleanUsuario,
     contrasena: cleanPassword,
     rol: rolNorm,
