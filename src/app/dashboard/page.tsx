@@ -63,7 +63,20 @@ export default function DashboardPage() {
       setUserRole(role);
       setUserName(name);
 
-      // Cargar lista real de proyectos
+      const userDni = localStorage.getItem('user_dni') || '';
+
+      // Cargar proyectos desde base de datos del servidor (/api/projects)
+      fetch(`/api/projects?role=${encodeURIComponent(role)}&userDni=${encodeURIComponent(userDni)}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && Array.isArray(data.projects)) {
+            setProjects(data.projects);
+            localStorage.setItem('app_projects_list', JSON.stringify(data.projects));
+          }
+        })
+        .catch((e) => console.warn('Error al sincronizar proyectos en dashboard:', e));
+
+      // Cargar lista de proyectos de caché local en primer render
       const savedProjects = localStorage.getItem('app_projects_list');
       if (savedProjects) {
         try {

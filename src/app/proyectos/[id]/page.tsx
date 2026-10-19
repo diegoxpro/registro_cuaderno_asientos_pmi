@@ -166,6 +166,22 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
         activeProj = baseProjects[0];
       }
 
+      // Sincronizar desde la base de datos del servidor (/api/projects)
+      fetch(`/api/projects?role=${encodeURIComponent(role)}&userDni=${encodeURIComponent(userDni || '')}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && Array.isArray(data.projects) && data.projects.length > 0) {
+            setAllProjects(data.projects);
+            localStorage.setItem('app_projects_list', JSON.stringify(data.projects));
+            const foundInServer = data.projects.find((p: MockProject) => p.id === id || p.cui === id);
+            if (foundInServer) {
+              setCurrentProject(foundInServer);
+              localStorage.setItem('last_selected_project_id', foundInServer.id);
+            }
+          }
+        })
+        .catch((e) => console.warn('No se pudo sincronizar proyecto desde /api/projects:', e));
+
       if (activeProj) {
         setCurrentProject(activeProj);
         localStorage.setItem('last_selected_project_id', activeProj.id);
@@ -281,7 +297,7 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
     userRole.toUpperCase().includes('SUPERVISOR') ||
     userRole.toUpperCase().includes('JEFE');
 
-  const handleUpdateProject = (updatedProj: MockProject) => {
+  const handleUpdateProject = async (updatedProj: MockProject) => {
     setCurrentProject(updatedProj);
     if (typeof window !== 'undefined') {
       const savedProjects = localStorage.getItem('app_projects_list');
@@ -295,6 +311,16 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
       const updatedList = list.map((p) => (p.id === updatedProj.id ? updatedProj : p));
       localStorage.setItem('app_projects_list', JSON.stringify(updatedList));
       setAllProjects(updatedList);
+    }
+
+    try {
+      await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedProj),
+      });
+    } catch (err) {
+      console.warn('Error al sincronizar actualización de proyecto con el servidor:', err);
     }
   };
 

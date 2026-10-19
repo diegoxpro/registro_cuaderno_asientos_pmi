@@ -54,6 +54,20 @@ export default function Sidebar({ collapsed: externalCollapsed, onToggleCollapse
             return;
           }
         } catch (e) {}
+      } else {
+        const uRole = role || '';
+        const uDni = localStorage.getItem('user_dni') || '';
+        fetch(`/api/projects?role=${encodeURIComponent(uRole)}&userDni=${encodeURIComponent(uDni)}`)
+          .then((r) => r.json())
+          .then((d) => {
+            if (d.success && Array.isArray(d.projects) && d.projects.length > 0) {
+              localStorage.setItem('app_projects_list', JSON.stringify(d.projects));
+              if (!lastId && d.projects[0]?.id) {
+                setCuadernoHref(`/proyectos/${d.projects[0].id}`);
+              }
+            }
+          })
+          .catch(() => {});
       }
       setCuadernoHref('/proyectos');
     }

@@ -179,6 +179,28 @@ export default function AsignacionProyectosPage() {
       const role = localStorage.getItem('user_role');
       if (role) setUserRole(role);
 
+      // Sincronizar proyectos desde el servidor
+      fetch('/api/projects?role=ADMINISTRADOR')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && Array.isArray(data.projects)) {
+            setProjects(data.projects);
+            localStorage.setItem('app_projects_list', JSON.stringify(data.projects));
+          }
+        })
+        .catch((e) => console.warn('Error al cargar proyectos del servidor:', e));
+
+      // Sincronizar asignaciones desde el servidor
+      fetch('/api/projects/assignments')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && Array.isArray(data.assignments) && data.assignments.length > 0) {
+            localStorage.setItem('app_user_project_assignments', JSON.stringify(data.assignments));
+            loadAndSyncUsers();
+          }
+        })
+        .catch((e) => console.warn('Error al cargar asignaciones del servidor:', e));
+
       const savedProjects = localStorage.getItem('app_projects_list');
       if (savedProjects) {
         try {
@@ -251,13 +273,24 @@ export default function AsignacionProyectosPage() {
     );
   };
 
-  // Guardar Cambios en localStorage
-  const handleSaveAssignments = () => {
+  // Guardar Cambios en localStorage y Base de Datos
+  const handleSaveAssignments = async () => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('app_user_project_assignments', JSON.stringify(usersAssignments));
     }
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
+
+    // Sincronizar inmediatamente con el servidor y la base de datos
+    try {
+      await fetch('/api/projects/assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignments: usersAssignments }),
+      });
+    } catch (apiErr) {
+      console.warn('Error al persistir asignaciones en el servidor:', apiErr);
+    }
   };
 
   // Proyectos filtrados en el buscador

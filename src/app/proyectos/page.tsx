@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -62,81 +62,56 @@ export default function CarteraProyectosPage() {
   const [uploadNotification, setUploadNotification] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Función para sincronizar proyectos desde la base de datos del servidor (/api/projects)
+  const syncProjectsFromServer = useCallback(async (currentRole?: string, currentDni?: string) => {
+    try {
+      const roleParam = currentRole || (typeof window !== 'undefined' ? localStorage.getItem('user_role') || '' : '');
+      const dniParam = currentDni || (typeof window !== 'undefined' ? localStorage.getItem('user_dni') || '' : '');
+      
+      const query = new URLSearchParams();
+      if (roleParam) query.set('role', roleParam);
+      if (dniParam) query.set('userDni', dniParam);
+
+      const res = await fetch(`/api/projects?${query.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.projects) && data.projects.length > 0) {
+          setProjects(data.projects);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('app_projects_list', JSON.stringify(data.projects));
+          }
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Servidor /api/projects no disponible temporalmente, usando caché local:', err);
+    }
+
+    // Fallback a localStorage si el servidor no responde o está vacío
+    if (typeof window !== 'undefined') {
+      const savedProjects = localStorage.getItem('app_projects_list');
+      if (savedProjects) {
+        try {
+          const parsed = JSON.parse(savedProjects);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setProjects(parsed);
+          }
+        } catch (e) {
+          console.error('Error al leer app_projects_list de localStorage:', e);
+        }
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const role = localStorage.getItem('user_role');
       const userDni = localStorage.getItem('user_dni');
       if (role) setUserRole(role);
 
-      // Cargar proyectos desde localStorage si existen
-      const savedProjects = localStorage.getItem('app_projects_list');
-      let baseProjects = INITIAL_PROJECTS;
-      if (savedProjects) {
-        try {
-          const parsed = JSON.parse(savedProjects);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            let wasUpdated = false;
-            baseProjects = parsed.map((p: any) => {
-              const is2704014 = p.cui === '2704014' || (p.nombre && String(p.nombre).toUpperCase().includes('TUMBAS REALES'));
-              const rawMonto = p.montoInversion ?? p.monto ?? p.presupuesto ?? p.inversion;
-              const rawPlazo = p.plazoDias ?? p.plazo ?? p.plazoContractual ?? p.dias;
-              const rawFecha = p.fechaInicio ?? p.fechaInicioEstimada ?? p.fecha;
-              const rawLoc = p.localidad ?? p.centroPoblado ?? p.ubicacion;
-
-              if (is2704014) {
-                const needsMonto = !rawMonto || String(rawMonto).trim() === '' || String(rawMonto) === '0' || String(rawMonto) === '0.00';
-                const needsPlazo = !rawPlazo || String(rawPlazo).trim() === '';
-                const needsFecha = !rawFecha || String(rawFecha).trim() === '';
-                const needsLoc = !rawLoc || String(rawLoc).trim() === '';
-                const needsDist = !p.distrito || p.distrito === 'Chiclayo';
-
-                if (needsMonto || needsPlazo || needsFecha || needsLoc || needsDist) {
-                  wasUpdated = true;
-                  return {
-                    ...p,
-                    montoInversion: needsMonto ? '91,720,000.00' : rawMonto,
-                    monto: needsMonto ? '91,720,000.00' : rawMonto,
-                    plazoDias: needsPlazo ? '540' : rawPlazo,
-                    plazo: needsPlazo ? '540' : rawPlazo,
-                    fechaInicio: needsFecha ? '2026-03-01' : rawFecha,
-                    provincia: p.provincia || 'Lambayeque',
-                    distrito: needsDist ? 'Lambayeque' : p.distrito,
-                    localidad: needsLoc ? 'Museo Tumbas Reales de Sipán' : rawLoc,
-                    nConvenio: p.nConvenio || '045-003',
-                    entidadEjecutora: p.entidadEjecutora || '-INARCO-SIPAN',
-                    entidadSupervisora: p.entidadSupervisora || '-INARCO-SIPAN',
-                  };
-                }
-              }
-              return p;
-            });
-            if (wasUpdated) {
-              localStorage.setItem('app_projects_list', JSON.stringify(baseProjects));
-            }
-          }
-        } catch (e) {
-          console.error('Error al leer app_projects_list de localStorage:', e);
-        }
-      }
-
-      const storedAssignments = localStorage.getItem('app_user_project_assignments');
-      if (storedAssignments && role !== 'ADMINISTRADOR' && role !== 'JEFE_DE_PROYECTO' && role !== 'ADMIN') {
-        try {
-          const assignments = JSON.parse(storedAssignments);
-          const currentAssignment = assignments.find(
-            (u: any) => u.dni === userDni || (u.rol && u.rol.toUpperCase().includes(role))
-          );
-          if (currentAssignment && currentAssignment.restrictVisibility && currentAssignment.assignedProjectIds.length > 0) {
-            setProjects(baseProjects.filter((p) => currentAssignment.assignedProjectIds.includes(p.id)));
-            return;
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      }
-      setProjects(baseProjects);
+      syncProjectsFromServer(role || undefined, userDni || undefined);
     }
-  }, []);
+  }, [syncProjectsFromServer]);
 
   // Verificar si el usuario actual tiene permisos de Administrador o Supervisor de Obra
   const canManageProjects =
@@ -151,18 +126,46 @@ export default function CarteraProyectosPage() {
     }
   };
 
-  const handleAddNewProject = (newProj: MockProject) => {
+  const handleAddNewProject = async (newProj: MockProject) => {
     const updated = [newProj, ...projects];
     saveProjectsList(updated);
     setUploadNotification(`¡Proyecto "${newProj.nombre}" registrado exitosamente en la Cartera Regional!`);
     setTimeout(() => setUploadNotification(null), 4000);
+
+    // Guardar inmediatamente en la base de datos del servidor
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newProj),
+      });
+      if (res.ok) {
+        await syncProjectsFromServer();
+      }
+    } catch (apiErr) {
+      console.warn('Error al persistir proyecto en el servidor en segundo plano:', apiErr);
+    }
   };
 
-  const handleUpdateProject = (updatedProj: MockProject) => {
+  const handleUpdateProject = async (updatedProj: MockProject) => {
     const updatedList = projects.map((p) => (p.id === updatedProj.id ? updatedProj : p));
     saveProjectsList(updatedList);
     setUploadNotification(`¡Proyecto CUI ${updatedProj.cui} actualizado correctamente!`);
     setTimeout(() => setUploadNotification(null), 4000);
+
+    // Actualizar inmediatamente en la base de datos del servidor
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedProj),
+      });
+      if (res.ok) {
+        await syncProjectsFromServer();
+      }
+    } catch (apiErr) {
+      console.warn('Error al actualizar proyecto en el servidor en segundo plano:', apiErr);
+    }
   };
 
   // Manejo de archivo Excel/CSV seleccionado
@@ -257,7 +260,7 @@ export default function CarteraProyectosPage() {
     reader.readAsText(file);
   };
 
-  const handleProcessBulkUpload = () => {
+  const handleProcessBulkUpload = async () => {
     if (parsedPreview.length === 0) {
       alert('No hay proyectos válidos listos para importar.');
       return;
@@ -267,9 +270,23 @@ export default function CarteraProyectosPage() {
     saveProjectsList(updated);
     setIsBulkUploadModalOpen(false);
     setSelectedFile(null);
+    const toUpload = [...parsedPreview];
     setParsedPreview([]);
-    setUploadNotification(`¡Se cargaron exitosamente ${parsedPreview.length} proyectos desde el archivo Excel a la Cartera!`);
+    setUploadNotification(`¡Se cargaron exitosamente ${toUpload.length} proyectos a la Cartera y se están sincronizando con la base de datos!`);
     setTimeout(() => setUploadNotification(null), 4500);
+
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projects: toUpload }),
+      });
+      if (res.ok) {
+        await syncProjectsFromServer();
+      }
+    } catch (err) {
+      console.warn('Error al guardar proyectos masivos en servidor:', err);
+    }
   };
 
   const handleDownloadTemplate = () => {

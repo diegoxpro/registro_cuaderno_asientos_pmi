@@ -51,24 +51,41 @@ model User {
 }
 
 model Project {
-  id               String                  @id @default(uuid())
-  cui              String                  @unique
-  nombre           String
-  nConvenio        String
-  modalidad        String                  @default("OxI LEY 29230")
-  fase             String                  @default("Ejecución Física")
-  entidadEjecutora String
-  residenteNombre  String?
-  residenteCIP     String?
-  supervisorNombre String?
-  supervisorCIP    String?
-  estado           ProjectState            @default(ACTIVO)
-  provincia        String                  @default("Chiclayo")
-  estadoObra       String                  @default("En Ejecución")
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
-  asientos         IncidenceEntry[]
-  asignaciones     UserProjectAssignment[]
+  id                 String                  @id @default(uuid())
+  cui                String                  @unique
+  nombre             String
+  nConvenio          String
+  modalidad          String                  @default("OxI LEY 29230")
+  fase               String                  @default("Ejecución Física")
+  entidadEjecutora   String
+  entidadSupervisora String?
+  montoInversion     String?
+  monto              String?
+  plazoDias          String?
+  plazo              String?
+  fechaInicio        String?
+  distrito           String?
+  localidad          String?
+  residenteNombre    String?
+  residenteCIP       String?
+  residenteDni       String?
+  residenteCelular   String?
+  residenteEmail     String?
+  supervisorNombre   String?
+  supervisorCIP      String?
+  supervisorDni      String?
+  supervisorEmpresa  String?
+  supervisorEmail    String?
+  estado             ProjectState            @default(ACTIVO)
+  provincia          String                  @default("Chiclayo")
+  estadoObra         String                  @default("En Ejecución")
+  archivado          Boolean                 @default(false)
+  fechaArchivado     String?
+  archivadoPor       String?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  asientos           IncidenceEntry[]
+  asignaciones       UserProjectAssignment[]
 }
 
 model UserProjectAssignment {
