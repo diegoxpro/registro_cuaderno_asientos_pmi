@@ -187,73 +187,53 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
         localStorage.setItem('last_selected_project_id', activeProj.id);
       }
 
-      // Cargar los asientos registrados recientemente para este proyecto
+      // Cargar los asientos registrados para este proyecto (sincronizados con la API / Base de Datos)
       const activeProjId = activeProj ? activeProj.id : id;
       const storageKey = `custom_incidences_${activeProjId}`;
 
-      // Recuperar cualquier asiento huérfano guardado bajo custom_incidences_ o custom_incidences_undefined
-      const orphanStr = localStorage.getItem('custom_incidences_') || localStorage.getItem('custom_incidences_undefined');
-      if (orphanStr && activeProjId) {
-        try {
-          const orphans = JSON.parse(orphanStr);
-          if (Array.isArray(orphans) && orphans.length > 0) {
-            const currentStr = localStorage.getItem(storageKey);
-            const currentList = currentStr ? JSON.parse(currentStr) : [];
-            const curIds = new Set(currentList.map((x: any) => x.id));
-            const newToAdd = orphans.filter((x: any) => !curIds.has(x.id));
-            if (newToAdd.length > 0) {
-              const merged = [...newToAdd, ...currentList];
-              localStorage.setItem(storageKey, JSON.stringify(merged));
-            }
-            localStorage.removeItem('custom_incidences_');
-            localStorage.removeItem('custom_incidences_undefined');
-          }
-        } catch (e) {
-          console.error('Error recuperando asientos huérfanos:', e);
-        }
-      }
-
+      // 1. Mostrar inmediatamente desde memoria/semillas locales para evitar pantalla vacía
+      const seedList = INITIAL_INCIDENCES[activeProjId] || INITIAL_INCIDENCES['p-2704014'] || INITIAL_INCIDENCES['2704014'] || [];
       const savedStr = localStorage.getItem(storageKey);
+      let localList: MockIncidenceEntry[] = [];
       if (savedStr) {
         try {
-          const savedList = JSON.parse(savedStr);
-          if (Array.isArray(savedList) && savedList.length > 0) {
-            const initialList = INITIAL_INCIDENCES[activeProjId] || [];
-
-            // Reparar correlativos duplicados si se registraron previamente con el mismo número
-            const initialMax = initialList.reduce((max, inc) => Math.max(max, inc.numeroCorrelativo || 0), 0);
-            const seenNumbers = new Set(initialList.map(i => i.numeroCorrelativo));
-            let nextNum = initialMax + 1;
-            let needsSave = false;
-
-            const reversedCustom = [...savedList].reverse();
-            const repairedCustom = reversedCustom.map((inc: any) => {
-              if (!inc.esRespuestaDeId) {
-                if (seenNumbers.has(inc.numeroCorrelativo) || !inc.numeroCorrelativo) {
-                  needsSave = true;
-                  inc.numeroCorrelativo = nextNum;
-                  inc.numeroCorrelativoFormatted = `${nextNum.toString().padStart(4, '0')}`;
-                }
-                seenNumbers.add(inc.numeroCorrelativo);
-                nextNum = Math.max(nextNum, inc.numeroCorrelativo + 1);
-              }
-              return inc;
-            }).reverse();
-
-            if (needsSave) {
-              localStorage.setItem(storageKey, JSON.stringify(repairedCustom));
-            }
-
-            setIncidences([...repairedCustom, ...initialList]);
-          } else {
-            setIncidences(INITIAL_INCIDENCES[activeProjId] || []);
+          const parsed = JSON.parse(savedStr);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            localList = parsed;
           }
-        } catch (e) {
-          console.error(e);
-        }
-      } else {
-        setIncidences(INITIAL_INCIDENCES[activeProjId] || []);
+        } catch (e) {}
       }
+
+      if (localList.length > 0) {
+        setIncidences(localList);
+      } else if (seedList.length > 0) {
+        setIncidences(seedList);
+      }
+
+      // 2. Consultar al servidor los asientos sincronizados con la Base de Datos PostgreSQL
+      fetch(`/api/incidences?projectId=${activeProjId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && Array.isArray(data.incidences) && data.incidences.length > 0) {
+            setIncidences(data.incidences);
+            localStorage.setItem(storageKey, JSON.stringify(data.incidences));
+          } else if (localList.length > 0) {
+            // Si el servidor no tiene asientos pero el cliente sí, sincronizarlos con la base de datos
+            fetch('/api/incidences', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(localList),
+            }).catch(() => {});
+          } else if (seedList.length > 0) {
+            // Sincronizar semillas hacia el servidor si está vacío
+            fetch('/api/incidences', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(seedList),
+            }).catch(() => {});
+          }
+        })
+        .catch((err) => console.warn('Error al consultar /api/incidences:', err));
     }
   }, [id]);
 
@@ -556,9 +536,14 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
 
     if (typeof window !== 'undefined') {
       const storageKey = `custom_incidences_${currentProject.id}`;
-      const initialIds = (INITIAL_INCIDENCES[currentProject.id] || []).map((i) => i.id);
-      const customOnly = updatedList.filter((i) => !initialIds.includes(i.id));
-      localStorage.setItem(storageKey, JSON.stringify(customOnly));
+      localStorage.setItem(storageKey, JSON.stringify(updatedList));
+
+      // Sincronizar actualización con el servidor y PostgreSQL
+      fetch('/api/incidences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedSeat),
+      }).catch((err) => console.warn('Error al sincronizar edición con API:', err));
     }
 
     alert(`✅ El Asiento N° ${getNumeroCorrelativoDisplay(updatedSeat)} fue actualizado y guardado correctamente.`);

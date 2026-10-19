@@ -10,10 +10,7 @@ export default function CleanStorageInitializer() {
     if (typeof window !== 'undefined') {
       const dataVersion = localStorage.getItem('app_data_version');
       if (dataVersion !== CLEAN_VERSION) {
-        // 1. Eliminar listas de proyectos y asientos
-        localStorage.removeItem('app_projects_list');
-        localStorage.removeItem('app_incidences_list');
-        localStorage.removeItem('last_selected_project_id');
+        // 1. Mantener proyectos y asientos sincronizados
 
         // 2. Eliminar asignaciones de proyectos a usuarios
         localStorage.removeItem('app_user_project_assignments');
@@ -28,11 +25,9 @@ export default function CleanStorageInitializer() {
         localStorage.removeItem('app_notifications_list');
         localStorage.removeItem('admin_notifications');
 
-        // 5. Limpiar cualquier incidencia personalizada, archivos temporales, respaldos y solicitudes
+        // 5. Limpiar solo archivos temporales obsoletos y solicitudes antiguas
         Object.keys(localStorage).forEach((key) => {
           if (
-            key.startsWith('custom_incidences_') ||
-            key.startsWith('app_archived_') ||
             key.startsWith('mock_incidences_') ||
             key.startsWith('seat_edit_req_') ||
             key.startsWith('otp_')

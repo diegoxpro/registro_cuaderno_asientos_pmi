@@ -140,6 +140,22 @@ export default function ReportePorAsientoPage() {
       setGeneratedIncidence(null);
       setIsGenerated(false);
     }
+
+    // Consultar asientos autoritativos desde la API del servidor
+    fetch(`/api/incidences?projectId=${projId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.incidences) && data.incidences.length > 0) {
+          data.incidences.sort((a: any, b: any) => a.numeroCorrelativo - b.numeroCorrelativo);
+          setAvailableIncidences(data.incidences);
+          setSelectedIncidenceId(data.incidences[0].id);
+          deduceActorInfo(data.incidences[0], activeProj);
+          setGeneratedProject(activeProj || null);
+          setGeneratedIncidence(data.incidences[0]);
+          setIsGenerated(true);
+        }
+      })
+      .catch(() => {});
   }, [selectedProjectId, projects]);
 
   // Manejar cambio de Asiento en el selector

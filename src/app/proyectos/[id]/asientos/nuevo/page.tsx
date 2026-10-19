@@ -122,8 +122,19 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
         } catch (e) {}
       }
 
-      const initialList = INITIAL_INCIDENCES[activeProjId] || [];
+      const initialList = INITIAL_INCIDENCES[activeProjId] || INITIAL_INCIDENCES['p-2704014'] || [];
       setAllIncidences([...savedList, ...initialList]);
+
+      // Consultar lista actualizada de asientos del servidor para correlativos precisos
+      fetch(`/api/incidences?projectId=${activeProjId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && Array.isArray(data.incidences) && data.incidences.length > 0) {
+            setAllIncidences(data.incidences);
+            localStorage.setItem(storageKey, JSON.stringify(data.incidences));
+          }
+        })
+        .catch(() => {});
 
       // Preseleccionar asiento a responder si viene con el parámetro responderId
       const urlParams = new URLSearchParams(window.location.search);
@@ -229,7 +240,7 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
     }
   };
 
-  const handleSubmitAsiento = (e: React.FormEvent) => {
+  const handleSubmitAsiento = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!titulo || !contenido) {
       alert('Por favor ingrese el título y contenido del asiento.');
@@ -306,6 +317,17 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
             console.error('No se pudo guardar en localStorage:', finalErr);
           }
         }
+      }
+
+      // 🔔 PERSISTENCIA INMEDIATA EN BASE DE DATOS POSTGRESQL Y SERVIDOR
+      try {
+        await fetch('/api/incidences', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(incidenceForStorage),
+        });
+      } catch (apiErr) {
+        console.error('Error al guardar asiento en /api/incidences:', apiErr);
       }
 
       // 🔔 ACTUALIZAR CONTADOR DE ASIENTOS EN app_projects_list Y GUARDAR ÚLTIMO PROYECTO SELECCIONADO

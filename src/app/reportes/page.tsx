@@ -107,6 +107,19 @@ export default function ReportsPage() {
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || projects[0] || EMPTY_PROJECT;
 
+  useEffect(() => {
+    if (selectedProject?.id) {
+      fetch(`/api/incidences?projectId=${selectedProject.id}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && Array.isArray(data.incidences) && data.incidences.length > 0) {
+            localStorage.setItem(`custom_incidences_${selectedProject.id}`, JSON.stringify(data.incidences));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [selectedProject?.id]);
+
   // Generar Reporte Oficial
   const handleGenerateReport = () => {
     if (!selectedProject) return;
