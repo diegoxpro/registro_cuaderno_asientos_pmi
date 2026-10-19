@@ -108,6 +108,22 @@ export default function UserManagementModal({ isOpen, onClose }: Props) {
   const [rol, setRol] = useState<UserRecord['rol']>('Residente');
   const [otpEnabled, setOtpEnabled] = useState(true);
 
+function parseUserRecordRole(rol?: unknown, rolDisplay?: unknown): UserRecord['rol'] {
+  const disp = String(rolDisplay || '').trim();
+  if (disp === 'Supervisor de Proyecto') return 'Supervisor de Proyecto';
+  if (disp === 'Jefe de Proyecto') return 'Jefe de Proyecto';
+  if (disp === 'Supervisor de obra') return 'Supervisor de obra';
+  if (disp === 'Administrador') return 'Administrador';
+  if (disp === 'Residente') return 'Residente';
+
+  const r = String(rol || '').trim().toUpperCase();
+  if (r === 'SUPERVISOR_DE_PROYECTO' || r.includes('SUPERVISOR_PROYECTO')) return 'Supervisor de Proyecto';
+  if (r === 'JEFE_DE_PROYECTO' || r.includes('JEFE')) return 'Jefe de Proyecto';
+  if (r === 'SUPERVISOR_DE_OBRA' || (r.includes('SUPERVISOR') && !r.includes('PROYECTO'))) return 'Supervisor de obra';
+  if (r === 'ADMINISTRADOR' || r.includes('ADMIN')) return 'Administrador';
+  return 'Residente';
+}
+
   // Sincronizar usuarios desde el servidor (/api/users)
   const syncUsersFromServer = React.useCallback(async () => {
     try {
@@ -126,7 +142,7 @@ export default function UserManagementModal({ isOpen, onClose }: Props) {
             modContrato: u.modContrato ? String(u.modContrato) : undefined,
             usuario: String(u.usuario || u.dni || ''),
             contrasena: String(u.contrasena || '123456'),
-            rol: (u.rolDisplay as UserRecord['rol']) || (u.rol === 'ADMINISTRADOR' ? 'Administrador' : u.rol === 'SUPERVISOR_DE_OBRA' ? 'Supervisor de obra' : u.rol === 'JEFE_DE_PROYECTO' ? 'Jefe de Proyecto' : u.rol === 'SUPERVISOR_DE_PROYECTO' ? 'Supervisor de Proyecto' : 'Residente'),
+            rol: parseUserRecordRole(u.rol, u.rolDisplay),
             otpEnabled: u.otpEnabled !== undefined ? Boolean(u.otpEnabled) : true,
           }));
           setUsers(mapped);
@@ -158,7 +174,7 @@ export default function UserManagementModal({ isOpen, onClose }: Props) {
               modContrato: u.modContrato ? String(u.modContrato) : undefined,
               usuario: String(u.usuario || u.dni || ''),
               contrasena: String(u.contrasena || '123456'),
-              rol: (u.rolDisplay as UserRecord['rol']) || (u.rol === 'ADMINISTRADOR' ? 'Administrador' : u.rol === 'SUPERVISOR_DE_OBRA' ? 'Supervisor de obra' : 'Residente'),
+              rol: parseUserRecordRole(u.rol, u.rolDisplay),
               otpEnabled: u.otpEnabled !== undefined ? Boolean(u.otpEnabled) : true,
             }));
             setUsers(mapped);
@@ -374,11 +390,17 @@ export default function UserManagementModal({ isOpen, onClose }: Props) {
 
     // Persistir y sincronizar inmediatamente con el servidor
     try {
-      await fetch('/api/users', {
+      const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(savedUser),
+        body: JSON.stringify({
+          ...savedUser,
+          rolDisplay: savedUser.rol,
+        }),
       });
+      if (res.ok) {
+        await syncUsersFromServer();
+      }
     } catch (apiErr) {
       console.warn('No se pudo sincronizar usuario con el servidor en segundo plano:', apiErr);
     }

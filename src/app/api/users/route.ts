@@ -22,7 +22,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { nombre, apellidos, dni, contrasena, email, usuario, rol, cip, telefono, modContrato, otpEnabled, id } = body;
+    const { nombre, apellidos, dni, contrasena, email, usuario, rol, rolDisplay, cip, telefono, modContrato, otpEnabled, id } = body;
 
     if (!nombre || !apellidos || !dni || !contrasena) {
       return NextResponse.json(
@@ -43,6 +43,7 @@ export async function POST(req: Request) {
       usuario: usuario || dni,
       contrasena,
       rol,
+      rolDisplay,
       otpEnabled,
     });
 

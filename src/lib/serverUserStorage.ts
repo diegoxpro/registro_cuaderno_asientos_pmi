@@ -121,6 +121,18 @@ export async function getServerUsers(): Promise<AppUser[]> {
       markDbSuccess();
       if (Array.isArray(dbUsers) && dbUsers.length > 0) {
         for (const du of dbUsers) {
+          const matchingFileUser = fileUsers.find(
+            (fu) =>
+              (fu.usuario && fu.usuario.toLowerCase() === du.usuario.toLowerCase()) ||
+              (fu.dni && fu.dni.toLowerCase() === du.dni.toLowerCase())
+          );
+          const effectiveRole = (du.perfilAcceso === 'RESIDENTE' && matchingFileUser?.rol && matchingFileUser.rol !== 'RESIDENTE')
+            ? matchingFileUser.rol
+            : normalizeRole(du.perfilAcceso);
+          const effectiveDisplay = (du.perfilAcceso === 'RESIDENTE' && matchingFileUser?.rolDisplay && matchingFileUser.rolDisplay !== 'Residente')
+            ? matchingFileUser.rolDisplay
+            : roleToDisplay(effectiveRole);
+
           const mapped: AppUser = {
             id: du.id,
             nombre: du.nombre,
@@ -132,8 +144,8 @@ export async function getServerUsers(): Promise<AppUser[]> {
             modContrato: du.modContrato || undefined,
             usuario: du.usuario,
             contrasena: du.contrasena,
-            rol: normalizeRole(du.perfilAcceso),
-            rolDisplay: roleToDisplay(du.perfilAcceso),
+            rol: effectiveRole,
+            rolDisplay: effectiveDisplay,
             otpEnabled: lookupOtpEnabled(du.usuario, du.dni, fileUsers),
           };
           const key = (mapped.usuario || mapped.dni).toLowerCase();
@@ -170,6 +182,18 @@ export async function findServerUser(identifier: string): Promise<AppUser | null
       if (userFromDb) {
         markDbSuccess();
         const fileUsers = await readUsersFile();
+        const matchingFileUser = fileUsers.find(
+          (fu) =>
+            (fu.usuario && fu.usuario.toLowerCase() === userFromDb.usuario.toLowerCase()) ||
+            (fu.dni && fu.dni.toLowerCase() === userFromDb.dni.toLowerCase())
+        );
+        const effectiveRole = (userFromDb.perfilAcceso === 'RESIDENTE' && matchingFileUser?.rol && matchingFileUser.rol !== 'RESIDENTE')
+          ? matchingFileUser.rol
+          : normalizeRole(userFromDb.perfilAcceso);
+        const effectiveDisplay = (userFromDb.perfilAcceso === 'RESIDENTE' && matchingFileUser?.rolDisplay && matchingFileUser.rolDisplay !== 'Residente')
+          ? matchingFileUser.rolDisplay
+          : roleToDisplay(effectiveRole);
+
         return {
           id: userFromDb.id,
           nombre: userFromDb.nombre,
@@ -181,8 +205,8 @@ export async function findServerUser(identifier: string): Promise<AppUser | null
           modContrato: userFromDb.modContrato || undefined,
           usuario: userFromDb.usuario,
           contrasena: userFromDb.contrasena,
-          rol: normalizeRole(userFromDb.perfilAcceso),
-          rolDisplay: roleToDisplay(userFromDb.perfilAcceso),
+          rol: effectiveRole,
+          rolDisplay: effectiveDisplay,
           otpEnabled: lookupOtpEnabled(userFromDb.usuario, userFromDb.dni, fileUsers),
         };
       }
@@ -249,9 +273,10 @@ export async function saveServerUser(userData: Partial<AppUser> & { usuario?: st
   // Intentar sincronizar también con Prisma DB (si está disponible)
   if (canAttemptDb()) {
     try {
-      let prismaRole: 'ADMINISTRADOR' | 'RESIDENTE' | 'SUPERVISOR_DE_OBRA' | 'JEFE_DE_PROYECTO' = 'RESIDENTE';
+      let prismaRole: 'ADMINISTRADOR' | 'RESIDENTE' | 'SUPERVISOR_DE_OBRA' | 'JEFE_DE_PROYECTO' | 'SUPERVISOR_DE_PROYECTO' = 'RESIDENTE';
       if (rolNorm === 'ADMINISTRADOR') prismaRole = 'ADMINISTRADOR';
       else if (rolNorm === 'SUPERVISOR_DE_OBRA') prismaRole = 'SUPERVISOR_DE_OBRA';
+      else if (rolNorm === 'SUPERVISOR_DE_PROYECTO') prismaRole = 'SUPERVISOR_DE_PROYECTO';
       else if (rolNorm === 'JEFE_DE_PROYECTO') prismaRole = 'JEFE_DE_PROYECTO';
 
       await prisma.user.upsert({
