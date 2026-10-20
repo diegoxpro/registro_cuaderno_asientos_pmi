@@ -52,11 +52,9 @@ export async function POST(req: Request) {
       });
     }
 
-    if (!body.proyectoId) {
-      return NextResponse.json(
-        { success: false, error: 'El ID o CUI del proyecto es obligatorio.' },
-        { status: 400 }
-      );
+    const targetProjId = body.proyectoId || body.projectId || body.cui || body.cuiProyecto;
+    if (targetProjId && !body.proyectoId) {
+      body.proyectoId = targetProjId;
     }
 
     const saved = await saveServerIncidence(body);

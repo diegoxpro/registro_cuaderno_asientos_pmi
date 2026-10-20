@@ -206,7 +206,37 @@ export async function getServerIncidences(projectId?: string): Promise<MockIncid
 
 // Guardar o actualizar una incidencia en el servidor y en la base de datos
 export async function saveServerIncidence(incidenceData: Partial<MockIncidenceEntry>): Promise<MockIncidenceEntry> {
-  const rawProjId = String(incidenceData.proyectoId || '').trim();
+  let rawProjId = String(
+    incidenceData.proyectoId ||
+    (incidenceData as any).projectId ||
+    (incidenceData as any).cui ||
+    (incidenceData as any).cuiProyecto ||
+    ''
+  ).trim();
+
+  // Si no se proporcionó ID de proyecto, auto-resolver desde PostgreSQL o proyectos del servidor
+  if (!rawProjId || rawProjId === 'undefined' || rawProjId === 'null') {
+    if (canAttemptDb()) {
+      try {
+        const anyProj = await prisma.project.findFirst();
+        if (anyProj) {
+          rawProjId = anyProj.id;
+        }
+      } catch {}
+    }
+    if (!rawProjId) {
+      try {
+        if (fs.existsSync(PROJECTS_FILE)) {
+          const raw = fs.readFileSync(PROJECTS_FILE, 'utf-8');
+          const projects = JSON.parse(raw);
+          if (Array.isArray(projects) && projects.length > 0) {
+            rawProjId = projects[0].id || projects[0].cui;
+          }
+        }
+      } catch {}
+    }
+  }
+
   if (!rawProjId) {
     throw new Error('El ID o CUI del proyecto es obligatorio para registrar un asiento.');
   }
@@ -235,6 +265,12 @@ export async function saveServerIncidence(incidenceData: Partial<MockIncidenceEn
       if (matchedProj) {
         realProjectId = matchedProj.id;
         resolvedProjectCui = matchedProj.cui;
+      } else {
+        const anyProj = await prisma.project.findFirst();
+        if (anyProj) {
+          realProjectId = anyProj.id;
+          resolvedProjectCui = anyProj.cui;
+        }
       }
     } catch {}
   }
@@ -245,24 +281,48 @@ export async function saveServerIncidence(incidenceData: Partial<MockIncidenceEn
     ? allIncidences.findIndex((inc) => inc.id === incidenceData.id)
     : -1;
 
-  // Calcular correlativo para este proyecto si no viene especificado
-  let correlativo = incidenceData.numeroCorrelativo;
-  if (!correlativo || correlativo <= 0) {
-    const projectIncidences = allIncidences.filter(
-      (inc) => inc.proyectoId === realProjectId || inc.proyectoId === rawProjId
-    );
-    const maxCorrelativo = projectIncidences.reduce(
-      (max, inc) => Math.max(max, inc.numeroCorrelativo || 0),
-      0
-    );
-    correlativo = maxCorrelativo + 1;
+  // 1. Obtener el máximo correlativo existente en PostgreSQL Prisma
+  let maxCorrelativoDb = 0;
+  if (canAttemptDb()) {
+    try {
+      const agg = await prisma.incidenceEntry.aggregate({
+        where: { proyectoId: realProjectId },
+        _max: { numeroCorrelativo: true },
+      });
+      maxCorrelativoDb = agg._max.numeroCorrelativo || 0;
+    } catch {}
+  }
+
+  // 2. Obtener el máximo correlativo en archivo persistente
+  const projectIncidences = allIncidences.filter(
+    (inc) => inc.proyectoId === realProjectId || inc.proyectoId === rawProjId
+  );
+  const maxCorrelativoFile = projectIncidences.reduce(
+    (max, inc) => Math.max(max, inc.numeroCorrelativo || 0),
+    0
+  );
+
+  const highestExisting = Math.max(maxCorrelativoDb, maxCorrelativoFile);
+
+  // Calcular correlativo para este proyecto:
+  // Si es un asiento nuevo (o su correlativo colisiona con uno existente), asignar estrictamente highestExisting + 1
+  let correlativo = Number(incidenceData.numeroCorrelativo) || 0;
+  const isEditingExisting = existingIndex >= 0;
+
+  if (!isEditingExisting) {
+    if (correlativo <= 0 || correlativo <= highestExisting) {
+      correlativo = highestExisting + 1;
+    }
+  } else if (correlativo <= 0) {
+    correlativo = allIncidences[existingIndex].numeroCorrelativo || (highestExisting + 1);
   }
 
   const incidenceId =
-    incidenceData.id ||
-    (existingIndex >= 0
-      ? allIncidences[existingIndex].id
-      : `inc-${resolvedProjectCui}-${String(correlativo).padStart(4, '0')}`);
+    incidenceData.id && !incidenceData.id.startsWith('e-new-') && !incidenceData.id.startsWith('temp-')
+      ? incidenceData.id
+      : (existingIndex >= 0
+        ? allIncidences[existingIndex].id
+        : `inc-${resolvedProjectCui}-${String(correlativo).padStart(4, '0')}`);
 
   const fullIncidence: MockIncidenceEntry = {
     id: incidenceId,
@@ -289,7 +349,7 @@ export async function saveServerIncidence(incidenceData: Partial<MockIncidenceEn
   }
   await writeIncidencesFile(allIncidences);
 
-  // 2. Guardar en PostgreSQL Prisma
+  // 2. Guardar DIRECTAMENTE en PostgreSQL Prisma
   if (canAttemptDb()) {
     try {
       await prisma.incidenceEntry.upsert({
@@ -352,8 +412,9 @@ export async function saveServerIncidence(incidenceData: Partial<MockIncidenceEn
 
       markDbSuccess();
     } catch (dbErr) {
-      console.warn('Error al guardar incidencia en Prisma DB, persistida en archivo local:', dbErr);
+      console.error('Error al guardar incidencia en Prisma PostgreSQL:', dbErr);
       markDbFailure();
+      throw new Error(`Error en base de datos PostgreSQL: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
     }
   }
 

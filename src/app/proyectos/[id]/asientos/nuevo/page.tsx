@@ -86,10 +86,23 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
 
       setProject(foundProject);
 
-      const activeProjId = foundProject.id || id;
+      const activeProjId = foundProject.id || id || 'p-2704014';
       if (activeProjId) {
         localStorage.setItem('last_selected_project_id', activeProjId);
       }
+
+      // Sincronizar proyecto desde la API directamente
+      fetch('/api/projects')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && Array.isArray(data.projects) && data.projects.length > 0) {
+            const p = data.projects.find((x: any) => x.id === id || x.cui === id) || data.projects[0];
+            if (p) {
+              setProject(p);
+            }
+          }
+        })
+        .catch(() => {});
 
       // 3. Cargar incidencias existentes y recuperar huérfanas
       const storageKey = `custom_incidences_${activeProjId}`;
@@ -252,16 +265,19 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
     const now = new Date();
     const formattedDate = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
-    const targetProjectId = project.id || id || (typeof window !== 'undefined' ? localStorage.getItem('last_selected_project_id') : '') || '';
+    const targetProjectId = project.id || id || (typeof window !== 'undefined' ? localStorage.getItem('last_selected_project_id') : '') || 'p-2704014';
 
     const storedRole = (typeof window !== 'undefined' ? localStorage.getItem('user_role') : null) || 'Supervisor de Obra';
     const storedName = (typeof window !== 'undefined' ? localStorage.getItem('user_name') : null) || 'Ing. Responsable de Obra';
     const storedCip = (typeof window !== 'undefined' ? localStorage.getItem('user_cip') : null) || 'CIP-701234';
 
-    // Construcción de la nueva incidencia registrada
+    // Construcción de la nueva incidencia registrada con persistencia directa en PostgreSQL
     const newIncidence = {
-      id: `e-new-${Date.now()}`,
-      numeroCorrelativo: esRespuesta && selectedParentInc ? selectedParentInc.numeroCorrelativo : siguienteCorrelativo,
+      id: `inc-${project.cui || '2704014'}-${String(siguienteCorrelativo).padStart(4, '0')}`,
+      proyectoId: targetProjectId,
+      projectId: targetProjectId,
+      cui: project.cui || '2704014',
+      numeroCorrelativo: siguienteCorrelativo,
       numeroCorrelativoFormatted: displayNumeroCorrelativo,
       tipoIncidencia: tipoIncidencia,
       titulo: titulo,
@@ -278,121 +294,95 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
       adjuntos: adjuntos.map((att: any) => ({
         id: att.id,
         nombreArchivo: att.name,
-        // Usar la referencia IndexedDB (idb://) para persistencia; el viewer la resolverá
         urlArchivo: att.idbRef || att.url || '#',
         tipo: att.mimeType || (att.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
       })),
     };
 
-    if (typeof window !== 'undefined') {
-      const incidenceForStorage = {
-        ...newIncidence,
-        adjuntos: (newIncidence.adjuntos || []).map((att: any) => ({
-          id: att.id,
-          nombreArchivo: att.nombreArchivo,
-          // Guardar referencia idb:// en localStorage (muy pequeña, no supera límite)
-          urlArchivo: att.urlArchivo || '#',
-          tipo: att.tipo,
-        })),
-      };
+    try {
+      // 🔔 GUARDADO DIRECTO E INMEDIATO EN LA BASE DE DATOS POSTGRESQL
+      const response = await fetch('/api/incidences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newIncidence),
+      });
 
-      const storageKey = `custom_incidences_${targetProjectId}`;
-      const existingStr = localStorage.getItem(storageKey);
-      const existingList = existingStr ? JSON.parse(existingStr) : [];
+      const resData = await response.json();
 
-      try {
-        localStorage.setItem(storageKey, JSON.stringify([incidenceForStorage, ...existingList]));
-      } catch (quotaErr) {
-        // Si se excede la cuota, limpiar las entradas más antiguas y reintentar
-        console.warn('localStorage lleno, limpiando entradas antiguas...', quotaErr);
-        const trimmedList = existingList.slice(0, Math.max(Math.floor(existingList.length / 2), 5));
+      if (!response.ok || !resData.success) {
+        throw new Error(resData.error || 'Error al guardar el asiento en la base de datos.');
+      }
+
+      const savedIncidence = resData.incidence || newIncidence;
+      const finalCorrelativo = savedIncidence.numeroCorrelativo || siguienteCorrelativo;
+      const finalDisplayCorrelativo = String(finalCorrelativo).padStart(4, '0');
+
+      // Actualizar caché de respaldo en localStorage
+      if (typeof window !== 'undefined') {
+        const storageKey = `custom_incidences_${targetProjectId}`;
+        const existingStr = localStorage.getItem(storageKey);
+        const existingList = existingStr ? JSON.parse(existingStr) : [];
         try {
-          localStorage.setItem(storageKey, JSON.stringify([incidenceForStorage, ...trimmedList]));
-        } catch (retryErr) {
-          // Último intento: guardar solo la nueva entrada
-          console.error('Reintento fallido, guardando solo nueva entrada:', retryErr);
+          localStorage.setItem(storageKey, JSON.stringify([savedIncidence, ...existingList.filter((x: any) => x.id !== savedIncidence.id)]));
+        } catch (e) {}
+
+        // Actualizar contador de asientos en app_projects_list
+        const savedProjects = localStorage.getItem('app_projects_list');
+        if (savedProjects) {
           try {
-            localStorage.setItem(storageKey, JSON.stringify([incidenceForStorage]));
-          } catch (finalErr) {
-            console.error('No se pudo guardar en localStorage:', finalErr);
-          }
+            const parsed = JSON.parse(savedProjects);
+            if (Array.isArray(parsed)) {
+              const updated = parsed.map((p: MockProject) => {
+                if (p.id === targetProjectId || p.cui === project.cui) {
+                  return { ...p, asientosCount: (p.asientosCount || 0) + 1 };
+                }
+                return p;
+              });
+              localStorage.setItem('app_projects_list', JSON.stringify(updated));
+            }
+          } catch (e) {}
         }
-      }
+        if (targetProjectId) {
+          localStorage.setItem('last_selected_project_id', targetProjectId);
+        }
 
-      // 🔔 PERSISTENCIA INMEDIATA EN BASE DE DATOS POSTGRESQL Y SERVIDOR
-      try {
-        await fetch('/api/incidences', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(incidenceForStorage),
-        });
-      } catch (apiErr) {
-        console.error('Error al guardar asiento en /api/incidences:', apiErr);
-      }
+        // Notificación automática
+        const notificationItem = {
+          id: `notif-${Date.now()}`,
+          proyectoId: targetProjectId,
+          cuiProyecto: project.cui,
+          nombreProyecto: project.nombre,
+          asientoId: savedIncidence.id,
+          numeroCorrelativo: finalDisplayCorrelativo,
+          tipoIncidencia: tipoIncidencia,
+          tituloAsiento: titulo,
+          autorNombre: storedName,
+          autorCargo: storedRole,
+          fechaHora: formattedDate,
+          destinatariosRoles: ['SUPERVISOR', 'SUPERVISOR_DE_OBRA', 'ADMINISTRADOR', 'ADMIN', 'JEFE_DE_PROYECTO'],
+          leido: false,
+          esRespuesta: esRespuesta,
+          mensaje: esRespuesta 
+            ? `💬 Se registró el Asiento Respuesta N° ${finalDisplayCorrelativo} por ${storedRole} en la obra CUI ${project.cui}`
+            : `🔔 Se generó el nuevo Asiento N° ${finalDisplayCorrelativo} (${tipoIncidencia.replace('_', ' ')}) por ${storedRole} en la obra CUI ${project.cui}`,
+        };
 
-      // 🔔 ACTUALIZAR CONTADOR DE ASIENTOS EN app_projects_list Y GUARDAR ÚLTIMO PROYECTO SELECCIONADO
-      const savedProjects = localStorage.getItem('app_projects_list');
-      if (savedProjects) {
+        const notifKey = 'app_notifications_list';
+        const savedNotifsStr = localStorage.getItem(notifKey);
+        const notifsList = savedNotifsStr ? JSON.parse(savedNotifsStr) : [];
         try {
-          const parsed = JSON.parse(savedProjects);
-          if (Array.isArray(parsed)) {
-            const updated = parsed.map((p: MockProject) => {
-              if (p.id === targetProjectId || p.cui === project.cui) {
-                return { ...p, asientosCount: (p.asientosCount || 0) + 1 };
-              }
-              return p;
-            });
-            localStorage.setItem('app_projects_list', JSON.stringify(updated));
-          }
-        } catch (e) {
-          console.error('Error al actualizar contador de asientos del proyecto:', e);
-        }
-      }
-      if (targetProjectId) {
-        localStorage.setItem('last_selected_project_id', targetProjectId);
+          localStorage.setItem(notifKey, JSON.stringify([notificationItem, ...notifsList.slice(0, 49)]));
+        } catch (e) {}
       }
 
-      // 🔔 NOTIFICACIÓN AUTOMÁTICA AL SUPERVISOR Y ADMINISTRADOR
-      const notificationItem = {
-        id: `notif-${Date.now()}`,
-        proyectoId: targetProjectId,
-        cuiProyecto: project.cui,
-        nombreProyecto: project.nombre,
-        asientoId: newIncidence.id,
-        numeroCorrelativo: displayNumeroCorrelativo,
-        tipoIncidencia: tipoIncidencia,
-        tituloAsiento: titulo,
-        autorNombre: storedName,
-        autorCargo: storedRole,
-        fechaHora: formattedDate,
-        destinatariosRoles: ['SUPERVISOR', 'SUPERVISOR_DE_OBRA', 'ADMINISTRADOR', 'ADMIN', 'JEFE_DE_PROYECTO'],
-        leido: false,
-        esRespuesta: esRespuesta,
-        mensaje: esRespuesta 
-          ? `💬 Se registró el Asiento Respuesta N° ${displayNumeroCorrelativo} por ${storedRole} en la obra CUI ${project.cui}`
-          : `🔔 Se generó el nuevo Asiento N° ${displayNumeroCorrelativo} (${tipoIncidencia.replace('_', ' ')}) por ${storedRole} en la obra CUI ${project.cui}`,
-      };
-
-      const notifKey = 'app_notifications_list';
-      const savedNotifsStr = localStorage.getItem(notifKey);
-      const notifsList = savedNotifsStr ? JSON.parse(savedNotifsStr) : [];
-      try {
-        localStorage.setItem(notifKey, JSON.stringify([notificationItem, ...notifsList]));
-      } catch (notifQuotaErr) {
-        // Limitar notificaciones a las últimas 50
-        const trimmedNotifs = notifsList.slice(0, 50);
-        try {
-          localStorage.setItem(notifKey, JSON.stringify([notificationItem, ...trimmedNotifs]));
-        } catch (e) {
-          console.error('No se pudo guardar notificación:', e);
-        }
-      }
-    }
-
-    setTimeout(() => {
-      alert(`✅ Asiento registrado exitosamente en el Cuaderno Digital con numeración: N° ${displayNumeroCorrelativo}.`);
+      alert(`✅ Asiento N° ${finalDisplayCorrelativo} registrado y guardado exitosamente en la BASE DE DATOS.`);
       window.location.href = `/proyectos/${targetProjectId}`;
-    }, 600);
+    } catch (err: any) {
+      console.error('Error al registrar asiento en base de datos:', err);
+      alert(`⚠️ ERROR AL GUARDAR EN LA BASE DE DATOS: ${err?.message || 'Error de conexión con el servidor'}. Por favor, intente nuevamente.`);
+      setLoading(false);
+      return;
+    }
   };
 
   return (

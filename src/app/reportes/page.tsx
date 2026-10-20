@@ -133,7 +133,7 @@ export default function ReportsPage() {
       if (savedStr) {
         try {
           const custom = JSON.parse(savedStr);
-          if (Array.isArray(custom)) list = [...custom, ...list];
+          if (Array.isArray(custom) && custom.length > 0) list = custom;
         } catch (e) {
           console.error(e);
         }

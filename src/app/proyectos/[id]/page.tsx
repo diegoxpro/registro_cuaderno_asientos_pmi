@@ -187,11 +187,11 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
         localStorage.setItem('last_selected_project_id', activeProj.id);
       }
 
-      // Cargar los asientos registrados para este proyecto (sincronizados con la API / Base de Datos)
+      // Cargar los asientos registrados para este proyecto (autoridad 100% Base de Datos PostgreSQL)
       const activeProjId = activeProj ? activeProj.id : id;
       const storageKey = `custom_incidences_${activeProjId}`;
 
-      // 1. Mostrar inmediatamente desde memoria/semillas locales para evitar pantalla vacía
+      // 1. Mostrar temporalmente para renderizado visual inmediato
       const seedList = INITIAL_INCIDENCES[activeProjId] || INITIAL_INCIDENCES['p-2704014'] || INITIAL_INCIDENCES['2704014'] || [];
       const savedStr = localStorage.getItem(storageKey);
       let localList: MockIncidenceEntry[] = [];
@@ -210,28 +210,73 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
         setIncidences(seedList);
       }
 
-      // 2. Consultar al servidor los asientos sincronizados con la Base de Datos PostgreSQL
+      // 2. Consultar a la Base de Datos PostgreSQL y rescatar asientos locales no sincronizados
       fetch(`/api/incidences?projectId=${activeProjId}`)
         .then((res) => res.json())
-        .then((data) => {
-          if (data.success && Array.isArray(data.incidences) && data.incidences.length > 0) {
-            setIncidences(data.incidences);
-            localStorage.setItem(storageKey, JSON.stringify(data.incidences));
-          } else if (localList.length > 0) {
-            // Si el servidor no tiene asientos pero el cliente sí, sincronizarlos con la base de datos
-            fetch('/api/incidences', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(localList),
-            }).catch(() => {});
-          } else if (seedList.length > 0) {
-            // Sincronizar semillas hacia el servidor si está vacío
-            fetch('/api/incidences', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(seedList),
-            }).catch(() => {});
+        .then(async (data) => {
+          const dbIncidences: MockIncidenceEntry[] = (data.success && Array.isArray(data.incidences)) ? data.incidences : [];
+          const dbTitles = new Set(dbIncidences.map((x) => (x.titulo || '').trim().toLowerCase()));
+          const dbIds = new Set(dbIncidences.map((x) => x.id));
+
+          // Claves potenciales donde podrían haber quedado asientos locales atrapados
+          const possibleStorageKeys = [
+            storageKey,
+            `custom_incidences_${activeProj?.cui || ''}`,
+            'custom_incidences_p-2704014',
+            'custom_incidences_2704014',
+            'custom_incidences_',
+            'custom_incidences_undefined',
+          ];
+
+          const unsyncedLocals: MockIncidenceEntry[] = [];
+          for (const k of possibleStorageKeys) {
+            if (!k) continue;
+            const str = localStorage.getItem(k);
+            if (!str) continue;
+            try {
+              const arr = JSON.parse(str);
+              if (Array.isArray(arr)) {
+                for (const item of arr) {
+                  const itemTitle = (item?.titulo || '').trim().toLowerCase();
+                  if (item && item.titulo && !dbIds.has(item.id) && !dbTitles.has(itemTitle)) {
+                    unsyncedLocals.push(item);
+                    dbIds.add(item.id);
+                    dbTitles.add(itemTitle);
+                  }
+                }
+              }
+            } catch {}
           }
+
+          // 🔔 RESCATE AUTOMÁTICO: guardar cualquier asiento huérfano directamente en la base de datos PostgreSQL
+          if (unsyncedLocals.length > 0) {
+            console.log(`Detectados ${unsyncedLocals.length} asientos locales no sincronizados. Guardando inmediatamente en la base de datos...`);
+            for (const unsaved of unsyncedLocals) {
+              try {
+                const res = await fetch('/api/incidences', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    ...unsaved,
+                    proyectoId: activeProjId,
+                    projectId: activeProjId,
+                    cui: activeProj?.cui || '2704014',
+                  }),
+                });
+                const resJson = await res.json();
+                if (resJson.success && resJson.incidence) {
+                  dbIncidences.push(resJson.incidence);
+                }
+              } catch (e) {
+                console.error('Error al rescatar asiento hacia la base de datos:', e);
+              }
+            }
+          }
+
+          // Ordenar por correlativo y establecer en estado
+          dbIncidences.sort((a, b) => a.numeroCorrelativo - b.numeroCorrelativo);
+          setIncidences(dbIncidences);
+          localStorage.setItem(storageKey, JSON.stringify(dbIncidences));
         })
         .catch((err) => console.warn('Error al consultar /api/incidences:', err));
     }
@@ -542,7 +587,12 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
       fetch('/api/incidences', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedSeat),
+        body: JSON.stringify({
+          ...updatedSeat,
+          proyectoId: updatedSeat.proyectoId || currentProject.id || id,
+          projectId: currentProject.id || id,
+          cui: currentProject.cui,
+        }),
       }).catch((err) => console.warn('Error al sincronizar edición con API:', err));
     }
 
