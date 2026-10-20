@@ -21,10 +21,10 @@ import {
   FileWarning
 } from 'lucide-react';
 import { INITIAL_PROJECTS, MockProject } from '@/lib/mockData';
-import { useIncidences, saveIncidence } from '@/lib/useIncidences';
+import { useIncidences, saveIncidence, uploadAttachments } from '@/lib/useIncidences';
 import Sidebar from '@/components/Sidebar';
 import { getStoredIncidenceTypes } from '@/components/IncidenceTypesModal';
-import { saveAttachment, makeIdbUrl } from '@/lib/attachmentStorage';
+import { validateUpload, getExtension, MAX_ATTACHMENT_BYTES, ALLOWED_EXTENSIONS } from '@/lib/attachmentRules';
 
 const EMPTY_PROJECT: MockProject = {
   id: '',
@@ -43,14 +43,6 @@ const EMPTY_PROJECT: MockProject = {
   estadoObra: 'Sin proyectos',
   asientosCount: 0,
 };
-
-// Extensiones prohibidas de scripts, ejecutable y sistema
-const RESTRICTED_EXTENSIONS = [
-  'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs',
-  'cmd', 'bat', 'sh', 'bash', 'ps1', 'psm1', 'vbs', 'vbe', 'wsf', 'wsh',
-  'exe', 'msi', 'com', 'scr', 'cpl', 'gadget', 'jar', 'py', 'php', 'rb',
-  'dll', 'sys', 'drv', 'reg', 'htc', 'pif', 'application'
-];
 
 export default function NuevoAsientoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -122,7 +114,8 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
   const [asientoRespondidoId, setAsientoRespondidoId] = useState('');
   const [titulo, setTitulo] = useState('');
   const [contenido, setContenido] = useState('');
-  const [adjuntos, setAdjuntos] = useState<{ id: string; name: string; size: string; type: string }[]>([]);
+  // Archivos elegidos: se suben al servidor al registrar el asiento (no se guardan en el navegador)
+  const [adjuntos, setAdjuntos] = useState<{ id: string; name: string; size: string; type: string; file: File }[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -146,56 +139,27 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
     const filesArray = Array.from(files);
     const rejectedFiles: string[] = [];
 
+    const accepted: { id: string; name: string; size: string; type: string; file: File }[] = [];
     filesArray.forEach((file) => {
-      const ext = file.name.split('.').pop()?.toLowerCase() || '';
-      
-      if (RESTRICTED_EXTENSIONS.includes(ext)) {
-        rejectedFiles.push(file.name);
-      } else {
-        const sizeInMB = file.size / (1024 * 1024);
-        const formattedSize = sizeInMB >= 1 
-          ? `${sizeInMB.toFixed(2)} MB` 
-          : `${(file.size / 1024).toFixed(1)} KB`;
-
-        const mime = file.type || (ext === 'pdf' ? 'application/pdf' : `image/${ext}`);
-        const attachmentId = `att-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-
-        // Leer el archivo como Base64 y guardarlo en IndexedDB (sin límite de 5MB)
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const dataUrl = (e.target?.result as string) || '';
-          
-          if (dataUrl && dataUrl.startsWith('data:')) {
-            // Guardar en IndexedDB el contenido binario real
-            await saveAttachment(attachmentId, dataUrl);
-            
-            setAdjuntos((prev) => [
-              ...prev,
-              {
-                id: attachmentId,
-                name: file.name,
-                size: formattedSize || '1.2 MB',
-                type: ext.toUpperCase() || 'DOCUMENTO',
-                // Guardar la URL completa para mostrar preview inmediato
-                url: dataUrl,
-                // Referencia IndexedDB para persistencia duradera
-                idbRef: makeIdbUrl(attachmentId),
-                mimeType: mime,
-              },
-            ]);
-          } else {
-            setFileError('⚠️ Error al leer el archivo. Intente nuevamente.');
-          }
-        };
-        reader.onerror = () => {
-          setFileError(`⚠️ No se pudo leer el archivo "${file.name}". Verifique que no esté dañado.`);
-        };
-        reader.readAsDataURL(file);
+      const problem = validateUpload(file.name, file.size);
+      if (problem) {
+        rejectedFiles.push(problem);
+        return;
       }
+      const sizeInMB = file.size / (1024 * 1024);
+      accepted.push({
+        id: `${file.name}-${file.size}-${file.lastModified}`,
+        name: file.name,
+        size: sizeInMB >= 1 ? `${sizeInMB.toFixed(2)} MB` : `${(file.size / 1024).toFixed(1)} KB`,
+        type: getExtension(file.name).toUpperCase() || 'DOCUMENTO',
+        file,
+      });
     });
+    // Evitar duplicados si se elige el mismo archivo dos veces
+    setAdjuntos((prev) => [...prev, ...accepted.filter((a) => !prev.some((p) => p.id === a.id))]);
 
     if (rejectedFiles.length > 0) {
-      setFileError(`⚠️ ARCHIVO NO PERMITIDO POR SEGURIDAD: No se permite adjuntar scripts, archivos ejecutable o de sistema (${rejectedFiles.join(', ')}).`);
+      setFileError(`⚠️ ARCHIVO NO PERMITIDO: ${rejectedFiles.join(' ')}`);
     } else {
       setFileError(null);
     }
@@ -238,12 +202,6 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
       esRespuestaDeId: esRespuesta && asientoRespondidoId ? asientoRespondidoId : null,
       estadoGestion: esRespuesta ? 'Atendido / Respuesta Registrada' : 'Asiento Informativo (Sin acción requerida)',
       plazoDiasRespuesta: tipoIncidencia === 'CONSULTA_TECNICA' ? 10 : undefined,
-      adjuntos: adjuntos.map((att: any) => ({
-        id: att.id,
-        nombreArchivo: att.name,
-        urlArchivo: att.idbRef || att.url || '#',
-        tipo: att.mimeType || (att.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
-      })),
     };
 
     try {
@@ -251,6 +209,20 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
       const savedIncidence = await saveIncidence(newIncidence);
       const finalCorrelativo = savedIncidence.numeroCorrelativo;
       const finalDisplayCorrelativo = String(finalCorrelativo).padStart(4, '0');
+
+      // Subir los adjuntos al servidor; si fallan, el asiento ya quedó registrado y se avisa
+      let attachmentWarning = '';
+      if (adjuntos.length > 0) {
+        try {
+          await uploadAttachments(savedIncidence.id, adjuntos.map((a) => a.file));
+        } catch (uploadErr) {
+          attachmentWarning = `
+
+⚠️ El asiento se registró, pero los adjuntos NO se guardaron: ${
+            uploadErr instanceof Error ? uploadErr.message : 'error de conexión'
+          }. Puede volver a adjuntarlos editando el asiento.`;
+        }
+      }
 
       if (typeof window !== 'undefined') {
         localStorage.setItem('last_selected_project_id', targetProjectId);
@@ -284,7 +256,7 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
         } catch (e) {}
       }
 
-      alert(`✅ Asiento N° ${finalDisplayCorrelativo} registrado y guardado exitosamente en la BASE DE DATOS.`);
+      alert(`✅ Asiento N° ${finalDisplayCorrelativo} registrado y guardado exitosamente en la BASE DE DATOS.${attachmentWarning}`);
       window.location.href = `/proyectos/${targetProjectId}`;
     } catch (err: any) {
       console.error('Error al registrar asiento en base de datos:', err);
@@ -459,7 +431,7 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
                     Archivos Adjuntos / Evidencia Fotográfica / Planos
                   </label>
                   <span className="text-[10px] text-gray-500 font-sans">
-                    Permitidos: PDF, DWG, DOCX, XLSX, JPG, PNG, MP4, ZIP, RAR
+                    Permitidos: PDF, imágenes, Office, DWG/DXF, KML/KMZ, ZIP/RAR · máx. {MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB por archivo
                   </span>
                 </div>
 
@@ -467,8 +439,12 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
                 <input
                   type="file"
                   multiple
+                  accept={Object.keys(ALLOWED_EXTENSIONS).map((ext) => `.${ext}`).join(',')}
                   ref={fileInputRef}
-                  onChange={(e) => handleFileProcess(e.target.files)}
+                  onChange={(e) => {
+                    handleFileProcess(e.target.files);
+                    e.target.value = ''; // permitir volver a elegir el mismo archivo
+                  }}
                   className="hidden"
                 />
 

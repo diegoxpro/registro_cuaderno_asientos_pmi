@@ -7,7 +7,7 @@ import {
   IncidenceNotFoundError,
   ProjectNotFoundError,
 } from '@/lib/serverIncidenceStorage';
-import { getServerProjects } from '@/lib/serverProjectStorage';
+import { getAccessibleProjectKeys, normKey } from '@/lib/projectAccess';
 import { getRequestSession } from '@/lib/session';
 import { prisma } from '@/lib/prisma';
 import { findServerUser } from '@/lib/serverUserStorage';
@@ -19,20 +19,6 @@ function json(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: NO_STORE });
 }
 
-// Identificadores (id y CUI) de los proyectos visibles para el usuario de la sesión
-async function getAccessibleProjectKeys(req: Request): Promise<Set<string> | null> {
-  const session = getRequestSession(req);
-  if (!session) return null;
-  const projects = await getServerProjects({ userDni: session.dni, role: session.rol });
-  const keys = new Set<string>();
-  for (const p of projects) {
-    if (p.id) keys.add(String(p.id).toLowerCase().trim());
-    if (p.cui) keys.add(String(p.cui).toLowerCase().trim());
-  }
-  return keys;
-}
-
-const normKey = (v: unknown) => String(v || '').toLowerCase().trim();
 const isNewEntry = (item: Record<string, unknown>) => {
   const id = String(item.id || '');
   return !id || id.startsWith('e-new-') || id.startsWith('temp-');

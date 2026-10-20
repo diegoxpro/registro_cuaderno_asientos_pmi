@@ -219,13 +219,16 @@ export async function generateSqlDump(clientSnapshot?: {
   sql += `-- Tabla: Attachment (${attachmentsData.length} registros)\n`;
   sql += `-- --------------------------------------------------------\n`;
   for (const att of attachmentsData) {
-    const cols = ['id', 'asientoId', 'nombreArchivo', 'urlArchivo', 'tipo', 'createdAt'];
+    const cols = ['id', 'asientoId', 'nombreArchivo', 'urlArchivo', 'tipo', 'rutaArchivo', 'tamanoBytes', 'subidoPor', 'createdAt'];
     const vals = [
       escapeSqlValue(att.id),
       escapeSqlValue(att.asientoId),
       escapeSqlValue(att.nombreArchivo),
       escapeSqlValue(att.urlArchivo),
       escapeSqlValue(att.tipo),
+      escapeSqlValue(att.rutaArchivo || null),
+      escapeSqlValue(att.tamanoBytes ?? null),
+      escapeSqlValue(att.subidoPor || null),
       escapeSqlValue(att.createdAt ? new Date(att.createdAt) : now),
     ];
     sql += `INSERT INTO "Attachment" ("${cols.join('", "')}") VALUES (${vals.join(', ')}) ON CONFLICT ("id") DO NOTHING;\n`;

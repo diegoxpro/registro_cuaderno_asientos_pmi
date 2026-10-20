@@ -43,7 +43,7 @@ import {
   Database
 } from 'lucide-react';
 import { INITIAL_PROJECTS, MockIncidenceEntry, MockProject } from '@/lib/mockData';
-import { useIncidences, saveIncidence } from '@/lib/useIncidences';
+import { useIncidences, saveIncidence, uploadAttachments } from '@/lib/useIncidences';
 import UserManagementModal from '@/components/UserManagementModal';
 import DatabaseBackupModal from '@/components/DatabaseBackupModal';
 import IncidenceTypesModal from '@/components/IncidenceTypesModal';
@@ -455,7 +455,7 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
   };
 
   // Guardar Cambios tras Editar Asiento Autorizado
-  const handleSaveEditedSeat = async (updatedSeat: MockIncidenceEntry) => {
+  const handleSaveEditedSeat = async (updatedSeat: MockIncidenceEntry, newFiles: File[] = []) => {
     const ok = await persistIncidenceChange(updatedSeat.id, {
       ...updatedSeat,
       editado: true,
@@ -463,6 +463,16 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
       edicionPermitida: false,
     });
     if (!ok) return;
+
+    if (newFiles.length > 0) {
+      try {
+        await uploadAttachments(updatedSeat.id, newFiles);
+        await reloadIncidences();
+      } catch (err) {
+        alert(`⚠️ Los cambios se guardaron, pero los adjuntos NO se subieron: ${err instanceof Error ? err.message : 'error de conexión'}`);
+        return;
+      }
+    }
 
     alert(`✅ El Asiento N° ${getNumeroCorrelativoDisplay(updatedSeat)} fue actualizado y guardado correctamente.`);
   };

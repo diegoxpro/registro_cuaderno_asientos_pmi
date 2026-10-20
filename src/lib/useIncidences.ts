@@ -32,6 +32,20 @@ export async function saveIncidence(payload: Record<string, unknown>): Promise<M
   return data.incidence;
 }
 
+/** Sube archivos adjuntos de un asiento ya guardado. Lanza un error con el mensaje del servidor. */
+export async function uploadAttachments(asientoId: string, files: File[]): Promise<MockIncidenceEntry['adjuntos']> {
+  if (files.length === 0) return [];
+  const form = new FormData();
+  form.append('asientoId', asientoId);
+  files.forEach((f) => form.append('file', f, f.name));
+  const res = await fetch('/api/attachments', { method: 'POST', body: form });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'No se pudieron subir los adjuntos.');
+  }
+  return data.adjuntos || [];
+}
+
 /**
  * Asientos de un proyecto leídos de la base de datos. Se recargan al volver a la pestaña
  * y cada 15 s, de modo que altas, cambios y eliminaciones hechas por otros (o directamente

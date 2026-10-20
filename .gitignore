@@ -39,3 +39,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Adjuntos subidos por los usuarios (se guardan en el servidor, no en git)
+/uploads/

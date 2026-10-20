@@ -141,5 +141,9 @@ model Attachment {
   nombreArchivo String
   urlArchivo    String
   tipo          String
+  // Ruta del archivo dentro de UPLOAD_DIR (servido solo vía /api/attachments/[id])
+  rutaArchivo   String?
+  tamanoBytes   Int?
+  subidoPor     String?
   createdAt     DateTime       @default(now())
 }

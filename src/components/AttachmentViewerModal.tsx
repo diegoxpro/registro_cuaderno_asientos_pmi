@@ -237,6 +237,11 @@ export default function AttachmentViewerModal({
     // Usar el blobUrl si es PDF o imgSrc / fileUrl
     const sourceToDownload = pdfBlobUrl || fileUrl;
     if (!sourceToDownload) return;
+    // Adjuntos del servidor: pedir la descarga con el nombre original del archivo
+    if (sourceToDownload.startsWith('/api/attachments/')) {
+      window.location.href = `${sourceToDownload}?download=1`;
+      return;
+    }
     downloadAttachment(sourceToDownload, fileName);
   };
 

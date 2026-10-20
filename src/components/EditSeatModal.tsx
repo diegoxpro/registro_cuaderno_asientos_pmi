@@ -3,12 +3,14 @@
 import React, { useState, useEffect } from 'react';
 import { Edit3, Save, X, Paperclip, FileText, Image as ImageIcon, Trash2, AlertCircle } from 'lucide-react';
 import { MockIncidenceEntry } from '@/lib/mockData';
+import { ALLOWED_EXTENSIONS, validateUpload } from '@/lib/attachmentRules';
 
 interface EditSeatModalProps {
   isOpen: boolean;
   onClose: () => void;
   incidence: MockIncidenceEntry | null;
-  onSaveSeat: (updatedSeat: MockIncidenceEntry) => void;
+  // newFiles: archivos nuevos a subir al servidor después de guardar el asiento
+  onSaveSeat: (updatedSeat: MockIncidenceEntry, newFiles: File[]) => void;
 }
 
 export default function EditSeatModal({
@@ -21,6 +23,8 @@ export default function EditSeatModal({
   const [contenido, setContenido] = useState('');
   const [tipoIncidencia, setTipoIncidencia] = useState<'RIESGO' | 'CONSULTA_TECNICA' | 'OBSERVACION' | 'INFORMATIVO' | 'MODIFICACION_ESTRUCTURAL'>('CONSULTA_TECNICA');
   const [adjuntos, setAdjuntos] = useState<{ id: string; nombreArchivo: string; urlArchivo: string; tipo: string }[]>([]);
+  const [newFiles, setNewFiles] = useState<File[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
 
   useEffect(() => {
     if (incidence) {
@@ -28,6 +32,8 @@ export default function EditSeatModal({
       setContenido(incidence.contenido || '');
       setTipoIncidencia(incidence.tipoIncidencia || 'CONSULTA_TECNICA');
       setAdjuntos(incidence.adjuntos || []);
+      setNewFiles([]);
+      setFileError(null);
     }
   }, [incidence]);
 
@@ -35,6 +41,19 @@ export default function EditSeatModal({
 
   const handleRemoveAttachment = (attId: string) => {
     setAdjuntos((prev) => prev.filter((a) => a.id !== attId));
+  };
+
+  const handleAddFiles = (files: FileList | null) => {
+    if (!files) return;
+    const problems: string[] = [];
+    const accepted: File[] = [];
+    Array.from(files).forEach((f) => {
+      const problem = validateUpload(f.name, f.size);
+      if (problem) problems.push(problem);
+      else accepted.push(f);
+    });
+    setNewFiles((prev) => [...prev, ...accepted]);
+    setFileError(problems.length > 0 ? problems.join(' ') : null);
   };
 
   const handleSave = (e: React.FormEvent) => {
@@ -59,7 +78,7 @@ export default function EditSeatModal({
       fechaUltimaEdicion: fechaFormat,
     };
 
-    onSaveSeat(updatedSeat);
+    onSaveSeat(updatedSeat, newFiles);
     onClose();
   };
 
@@ -140,6 +159,40 @@ export default function EditSeatModal({
           </div>
 
           {/* Adjuntos */}
+          <div>
+            <label className="inline-flex items-center space-x-1 px-3 py-1.5 bg-[#91000A]/10 text-[#91000A] rounded text-xs font-bold hover:bg-[#91000A]/20 cursor-pointer transition-all">
+              <Paperclip className="w-3.5 h-3.5" />
+              <span>Agregar archivos adjuntos</span>
+              <input
+                type="file"
+                multiple
+                className="hidden"
+                accept={Object.keys(ALLOWED_EXTENSIONS).map((ext) => `.${ext}`).join(',')}
+                onChange={(e) => {
+                  handleAddFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            {fileError && <p className="mt-1 text-[11px] text-red-700 font-semibold">⚠️ {fileError}</p>}
+            {newFiles.length > 0 && (
+              <div className="mt-2 space-y-1.5">
+                {newFiles.map((f, idx) => (
+                  <div key={`${f.name}-${idx}`} className="flex items-center justify-between p-2 bg-green-50 border border-green-200 rounded-md text-xs">
+                    <span className="font-semibold text-gray-800 truncate max-w-md">➕ {f.name} <span className="text-gray-500 font-normal">(se subirá al guardar)</span></span>
+                    <button
+                      type="button"
+                      onClick={() => setNewFiles((prev) => prev.filter((_, i) => i !== idx))}
+                      className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50"
+                      title="Quitar"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           {adjuntos.length > 0 && (
             <div>
               <label className="block font-semibold uppercase tracking-wider text-[#5B403D] mb-1 flex items-center space-x-1">

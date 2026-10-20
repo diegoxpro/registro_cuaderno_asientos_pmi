@@ -6,6 +6,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { MockIncidenceEntry } from '@/lib/mockData';
 import { fixUtf8Mojibake } from '@/lib/utf8Utils';
+import { removeAttachmentFiles } from '@/lib/attachmentFiles';
 
 type IncidenceTypeValue = MockIncidenceEntry['tipoIncidencia'];
 
@@ -122,21 +123,20 @@ function cleanText(value: unknown, fallback = ''): string {
   return fixUtf8Mojibake(String(value ?? '').trim()) || fallback;
 }
 
-async function upsertAttachments(asientoId: string, adjuntos: MockIncidenceEntry['adjuntos'] | undefined) {
-  if (!Array.isArray(adjuntos)) return;
-  for (const att of adjuntos) {
-    if (!att?.id || !att.nombreArchivo) continue;
-    const data = {
-      nombreArchivo: fixUtf8Mojibake(att.nombreArchivo),
-      urlArchivo: att.urlArchivo || '',
-      tipo: att.tipo || 'application/octet-stream',
-    };
-    await prisma.attachment.upsert({
-      where: { id: att.id },
-      update: data,
-      create: { id: att.id, asientoId, ...data },
-    });
-  }
+/**
+ * Quita los adjuntos del asiento que no figuren en `keepList` (registro y archivo en disco).
+ * Los adjuntos nuevos solo se agregan subiéndolos a /api/attachments, nunca desde este JSON.
+ */
+async function removeDroppedAttachments(asientoId: string, keepList: MockIncidenceEntry['adjuntos'] | undefined) {
+  if (!Array.isArray(keepList)) return;
+  const keepIds = keepList.map((a) => a?.id).filter(Boolean) as string[];
+  const dropped = await prisma.attachment.findMany({
+    where: { asientoId, id: { notIn: keepIds } },
+    select: { id: true, rutaArchivo: true },
+  });
+  if (dropped.length === 0) return;
+  await prisma.attachment.deleteMany({ where: { id: { in: dropped.map((d) => d.id) } } });
+  await removeAttachmentFiles(dropped.map((d) => d.rutaArchivo || ''));
 }
 
 const isTemporaryId = (id?: string) => !id || id.startsWith('e-new-') || id.startsWith('temp-');
@@ -190,7 +190,6 @@ export async function saveServerIncidence(incidenceData: Partial<MockIncidenceEn
           ...baseData,
         },
       });
-      await upsertAttachments(created.id, data.adjuntos);
       const full = await prisma.incidenceEntry.findUniqueOrThrow({ where: { id: created.id }, include: incidenceInclude });
       return toIncidenceDto(full);
     } catch (err) {
@@ -228,7 +227,7 @@ async function updateIncidence(id: string, data: Partial<MockIncidenceEntry>): P
   }
 
   await prisma.incidenceEntry.update({ where: { id }, data: update });
-  await upsertAttachments(id, data.adjuntos);
+  await removeDroppedAttachments(id, data.adjuntos);
   const full = await prisma.incidenceEntry.findUniqueOrThrow({ where: { id }, include: incidenceInclude });
   return toIncidenceDto(full);
 }
@@ -250,6 +249,8 @@ export async function saveServerIncidencesBatch(incidences: Partial<MockIncidenc
 export async function deleteServerIncidence(id: string): Promise<boolean> {
   const cleanId = String(id || '').trim();
   if (!cleanId) return false;
-  const result = await prisma.incidenceEntry.deleteMany({ where: { id: cleanId } });
+  const files = await prisma.attachment.findMany({ where: { asientoId: cleanId }, select: { rutaArchivo: true } });
+  const result = await prisma.incidenceEntry.deleteMany({ where: { id: cleanId } }); // adjuntos: onDelete Cascade
+  if (result.count > 0) await removeAttachmentFiles(files.map((f) => f.rutaArchivo || ''));
   return result.count > 0;
 }
