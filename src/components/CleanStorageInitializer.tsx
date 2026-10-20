@@ -1,87 +1,55 @@
 'use client';
 
 import { useEffect } from 'react';
-import { INITIAL_REGISTERED_USERS } from '@/lib/users';
 
-const CLEAN_VERSION = '5.0_clean_only_admin';
+// Al cambiar esta versión se ejecuta una limpieza única en cada navegador
+const CLEAN_VERSION = '6.0_sin_credenciales';
 
 export default function CleanStorageInitializer() {
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const dataVersion = localStorage.getItem('app_data_version');
-      if (dataVersion !== CLEAN_VERSION) {
-        // 1. Mantener proyectos y asientos sincronizados
+    try {
+      if (localStorage.getItem('app_data_version') !== CLEAN_VERSION) {
+        // Versiones anteriores copiaban aquí usuarios con contraseñas en texto plano:
+        // se descarta la lista completa (la Administración de Usuarios la vuelve a llenar sin contraseñas)
+        localStorage.removeItem('app_registered_users');
+        localStorage.removeItem('app_active_otp_session');
 
-        // 2. Eliminar asignaciones de proyectos a usuarios
-        localStorage.removeItem('app_user_project_assignments');
-        localStorage.removeItem('app_user_assignments');
-
-        // 3. Eliminar hitos de storyboard y archivos
-        localStorage.removeItem('app_storyboard_milestones');
-        localStorage.removeItem('app_storyboard_list');
-        localStorage.removeItem('app_archivos_list');
-
-        // 4. Eliminar notificaciones
-        localStorage.removeItem('app_notifications_list');
-        localStorage.removeItem('admin_notifications');
-
-        // 5. Limpiar solo archivos temporales obsoletos y solicitudes antiguas
+        // Claves obsoletas de versiones anteriores
+        ['app_user_assignments', 'app_storyboard_list', 'app_archivos_list', 'admin_notifications'].forEach((k) =>
+          localStorage.removeItem(k)
+        );
         Object.keys(localStorage).forEach((key) => {
-          if (
-            key.startsWith('mock_incidences_') ||
-            key.startsWith('seat_edit_req_') ||
-            key.startsWith('otp_')
-          ) {
+          if (key.startsWith('mock_incidences_') || key.startsWith('seat_edit_req_') || key.startsWith('otp_')) {
             localStorage.removeItem(key);
           }
         });
 
-        // 6. Asegurar que los usuarios iniciales estén presentes sin borrar los registrados por el usuario
-        const existingUsersStr = localStorage.getItem('app_registered_users');
-        if (!existingUsersStr) {
-          localStorage.setItem('app_registered_users', JSON.stringify(INITIAL_REGISTERED_USERS));
-        } else {
-          try {
-            const existingUsers = JSON.parse(existingUsersStr);
-            if (Array.isArray(existingUsers)) {
-              const idSet = new Set(existingUsers.map((u: any) => (u.usuario || u.dni || '').toLowerCase()));
-              const missing = INITIAL_REGISTERED_USERS.filter(
-                (seed) => !idSet.has(seed.usuario.toLowerCase()) && !idSet.has(seed.dni.toLowerCase())
-              );
-              if (missing.length > 0) {
-                localStorage.setItem('app_registered_users', JSON.stringify([...existingUsers, ...missing]));
-              }
-            }
-          } catch (e) {
-            localStorage.setItem('app_registered_users', JSON.stringify(INITIAL_REGISTERED_USERS));
-          }
-        }
-
-        // 7. Marcar versión de datos limpia
         localStorage.setItem('app_data_version', CLEAN_VERSION);
       }
 
-      // Salvaguarda continua: asegurar que la lista de usuarios exista
+      // Salvaguarda continua: nunca conservar contraseñas en la lista de usuarios del navegador
       const savedUsers = localStorage.getItem('app_registered_users');
-      if (!savedUsers) {
-        localStorage.setItem('app_registered_users', JSON.stringify(INITIAL_REGISTERED_USERS));
+      if (savedUsers && savedUsers.includes('"contrasena"')) {
+        const parsed = JSON.parse(savedUsers);
+        if (Array.isArray(parsed)) {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const clean = parsed.map(({ contrasena, ...rest }: Record<string, unknown>) => rest);
+          localStorage.setItem('app_registered_users', JSON.stringify(clean));
+        } else {
+          localStorage.removeItem('app_registered_users');
+        }
       }
 
       // Salvaguarda continua: eliminar notificaciones huérfanas
       const notifStr = localStorage.getItem('app_notifications_list');
       if (notifStr) {
-        try {
-          const parsed = JSON.parse(notifStr);
-          if (!Array.isArray(parsed) || parsed.length === 0) {
-            localStorage.removeItem('app_notifications_list');
-          }
-        } catch {
-          localStorage.removeItem('app_notifications_list');
-        }
+        const parsed = JSON.parse(notifStr);
+        if (!Array.isArray(parsed) || parsed.length === 0) localStorage.removeItem('app_notifications_list');
       }
+    } catch {
+      // localStorage no disponible o datos corruptos: no bloquear la aplicación
     }
   }, []);
 
   return null;
 }
-

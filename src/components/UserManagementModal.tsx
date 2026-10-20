@@ -42,36 +42,6 @@ export interface UserRecord {
   otpEnabled?: boolean;
 }
 
-const INITIAL_USERS: UserRecord[] = [
-  {
-    id: 'u-1',
-    nombre: 'Carlos',
-    apellidos: 'Mendoza Silva',
-    dni: '70123456',
-    cip: 'CIP-112233',
-    email: 'diegomartingv@gmail.com',
-    telefono: '912345678',
-    modContrato: 'Nombrado 276',
-    usuario: 'admin',
-    contrasena: 'admin123',
-    rol: 'Administrador',
-    otpEnabled: false,
-  },
-  {
-    id: 'u-jleon',
-    nombre: 'Jorge',
-    apellidos: 'León',
-    dni: '74859612',
-    cip: 'CIP-234567',
-    email: 'jleon@regionlambayeque.gob.pe',
-    telefono: '987654321',
-    modContrato: 'CAS',
-    usuario: 'jleon',
-    contrasena: 'Jleon26',
-    rol: 'Residente',
-    otpEnabled: false,
-  },
-];
 
 interface Props {
   isOpen: boolean;
@@ -79,7 +49,8 @@ interface Props {
 }
 
 export default function UserManagementModal({ isOpen, onClose }: Props) {
-  const [users, setUsers] = useState<UserRecord[]>(INITIAL_USERS);
+  // Lista cargada siempre desde el servidor (sin contraseñas)
+  const [users, setUsers] = useState<UserRecord[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRol, setFilterRol] = useState('TODOS');
   

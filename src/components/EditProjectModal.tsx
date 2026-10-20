@@ -53,7 +53,7 @@ export default function EditProjectModal({
   const [selectedSupervisorUserId, setSelectedSupervisorUserId] = useState('');
 
   // Registered Users for quick dropdown selection
-  const [registeredUsers, setRegisteredUsers] = useState<AppUser[]>([]);
+  const [registeredUsers, setRegisteredUsers] = useState<Omit<AppUser, 'contrasena'>[]>([]);
 
   useEffect(() => {
     if (isOpen && project) {

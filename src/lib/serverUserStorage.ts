@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { prisma } from '@/lib/prisma';
-import { AppUser, INITIAL_REGISTERED_USERS } from '@/lib/users';
+import { AppUser } from '@/lib/users';
 import { hashPassword, isPasswordHashed } from '@/lib/password';
 
 export type PublicUser = Omit<AppUser, 'contrasena'>;
@@ -50,9 +50,7 @@ async function readUsersFile(): Promise<AppUser[]> {
     }
 
     if (!fs.existsSync(USERS_FILE)) {
-      const initial = [...INITIAL_REGISTERED_USERS];
-      fs.writeFileSync(USERS_FILE, JSON.stringify(initial, null, 2), 'utf-8');
-      return initial;
+      return [];
     }
 
     const raw = fs.readFileSync(USERS_FILE, 'utf-8');
@@ -61,9 +59,9 @@ async function readUsersFile(): Promise<AppUser[]> {
       return parsed;
     }
   } catch (err) {
-    console.warn('Error al leer storage/users.json, usando valores iniciales:', err);
+    console.warn('Error al leer storage/users.json:', err);
   }
-  return [...INITIAL_REGISTERED_USERS];
+  return [];
 }
 
 // Escribir archivo de usuarios en el servidor
@@ -102,10 +100,6 @@ function lookupOtpEnabled(uUser: string, uDni: string, fileUsers: AppUser[]): bo
     (fu) =>
       (fu.usuario && fu.usuario.toLowerCase() === (uUser || '').toLowerCase()) ||
       (fu.dni && fu.dni.toLowerCase() === (uDni || '').toLowerCase())
-  ) || INITIAL_REGISTERED_USERS.find(
-    (seed) =>
-      (seed.usuario && seed.usuario.toLowerCase() === (uUser || '').toLowerCase()) ||
-      (seed.dni && seed.dni.toLowerCase() === (uDni || '').toLowerCase())
   );
   return match?.otpEnabled !== undefined ? Boolean(match.otpEnabled) : false;
 }
@@ -114,12 +108,6 @@ function lookupOtpEnabled(uUser: string, uDni: string, fileUsers: AppUser[]): bo
 export async function getServerUsers(): Promise<AppUser[]> {
   const fileUsers = await readUsersFile();
   const userMap = new Map<string, AppUser>();
-
-  // 1. Cargar usuarios semilla
-  for (const u of INITIAL_REGISTERED_USERS) {
-    const key = (u.usuario || u.dni).toLowerCase();
-    userMap.set(key, u);
-  }
 
   // 2. Cargar usuarios del archivo persistente
   for (const u of fileUsers) {
