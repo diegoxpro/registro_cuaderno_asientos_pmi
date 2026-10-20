@@ -1,92 +1,25 @@
-import fs from 'fs';
-import path from 'path';
+/**
+ * Proyectos y asignaciones usuario–proyecto — PostgreSQL (Prisma) como única fuente de verdad.
+ * No se usa almacenamiento en archivos: si la base de datos falla, la operación falla.
+ */
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { MockProject } from '@/lib/mockData';
 import { fixUtf8Mojibake } from '@/lib/utf8Utils';
+import { removeAttachmentFiles } from '@/lib/attachmentFiles';
+import { roleToDisplay } from '@/lib/serverUserStorage';
 
-const STORAGE_DIR = path.join(process.cwd(), 'storage');
-const PROJECTS_FILE = path.join(STORAGE_DIR, 'projects.json');
-const ASSIGNMENTS_FILE = path.join(STORAGE_DIR, 'assignments.json');
-
-let isDbAvailable = true;
-let lastDbAttempt = 0;
-const DB_RETRY_COOLDOWN_MS = 60000;
-
-function canAttemptDb(): boolean {
-  if (isDbAvailable) return true;
-  return Date.now() - lastDbAttempt > DB_RETRY_COOLDOWN_MS;
-}
-
-function markDbSuccess() {
-  isDbAvailable = true;
-}
-
-function markDbFailure() {
-  isDbAvailable = false;
-  lastDbAttempt = Date.now();
-}
-
-// Lectura de archivo local de proyectos
-async function readProjectsFile(): Promise<MockProject[]> {
-  try {
-    if (!fs.existsSync(STORAGE_DIR)) {
-      fs.mkdirSync(STORAGE_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(PROJECTS_FILE)) {
-      return [];
-    }
-    const raw = fs.readFileSync(PROJECTS_FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed;
-    }
-  } catch (err) {
-    console.warn('Error al leer storage/projects.json:', err);
-  }
-  return [];
-}
-
-// Escritura de archivo local de proyectos
-async function writeProjectsFile(projects: MockProject[]): Promise<void> {
-  try {
-    if (!fs.existsSync(STORAGE_DIR)) {
-      fs.mkdirSync(STORAGE_DIR, { recursive: true });
-    }
-    fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Error al guardar en storage/projects.json:', err);
+export class ProjectConflictError extends Error {
+  constructor(cui: string) {
+    super(`Ya existe un proyecto registrado con el CUI ${cui}.`);
+    this.name = 'ProjectConflictError';
   }
 }
 
-// Lectura de archivo local de asignaciones
-export async function readAssignmentsFile(): Promise<any[]> {
-  try {
-    if (!fs.existsSync(STORAGE_DIR)) {
-      fs.mkdirSync(STORAGE_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(ASSIGNMENTS_FILE)) {
-      return [];
-    }
-    const raw = fs.readFileSync(ASSIGNMENTS_FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed;
-    }
-  } catch (err) {
-    console.warn('Error al leer storage/assignments.json:', err);
-  }
-  return [];
-}
-
-// Escritura de archivo local de asignaciones
-export async function writeAssignmentsFile(assignments: any[]): Promise<void> {
-  try {
-    if (!fs.existsSync(STORAGE_DIR)) {
-      fs.mkdirSync(STORAGE_DIR, { recursive: true });
-    }
-    fs.writeFileSync(ASSIGNMENTS_FILE, JSON.stringify(assignments, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Error al guardar en storage/assignments.json:', err);
+export class ProjectValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProjectValidationError';
   }
 }
 
@@ -97,379 +30,295 @@ function normalizeState(st?: string): 'ACTIVO' | 'PAUSADO' | 'CONCLUIDO' {
   return 'ACTIVO';
 }
 
-// Obtener todos los proyectos del servidor con filtrado RBAC
-export async function getServerProjects(filters?: { userDni?: string; role?: string }): Promise<MockProject[]> {
-  const projectMap = new Map<string, MockProject>();
-  // DNIs asignados a cada proyecto en la tabla UserProjectAssignment (clave: cui o id)
-  const dbAssignedDnis = new Map<string, Set<string>>();
+const projectInclude = {
+  _count: { select: { asientos: true } },
+  asignaciones: { select: { user: { select: { dni: true } } } },
+} satisfies Prisma.ProjectInclude;
 
-  // 1. Cargar proyectos desde archivo persistente
-  const fileProjects = await readProjectsFile();
-  for (const p of fileProjects) {
-    if (p.cui || p.id) {
-      projectMap.set(p.cui || p.id, {
-        ...p,
-        nombre: fixUtf8Mojibake(p.nombre),
-        fase: fixUtf8Mojibake(p.fase),
-        entidadEjecutora: fixUtf8Mojibake(p.entidadEjecutora),
-        entidadSupervisora: p.entidadSupervisora ? fixUtf8Mojibake(p.entidadSupervisora) : undefined,
-        distrito: p.distrito ? fixUtf8Mojibake(p.distrito) : undefined,
-        localidad: p.localidad ? fixUtf8Mojibake(p.localidad) : undefined,
-        residenteNombre: p.residenteNombre ? fixUtf8Mojibake(p.residenteNombre) : null,
-        supervisorNombre: p.supervisorNombre ? fixUtf8Mojibake(p.supervisorNombre) : null,
-        supervisorEmpresa: p.supervisorEmpresa ? fixUtf8Mojibake(p.supervisorEmpresa) : undefined,
-        provincia: p.provincia ? fixUtf8Mojibake(p.provincia) : 'Chiclayo',
-        estadoObra: fixUtf8Mojibake(p.estadoObra),
-      });
-    }
-  }
+type DbProject = Prisma.ProjectGetPayload<{ include: typeof projectInclude }>;
 
-  // 2. Cargar proyectos desde base de datos PostgreSQL Prisma (si está disponible)
-  if (canAttemptDb()) {
-    try {
-      const dbProjects = await prisma.project.findMany({
-        include: {
-          asientos: {
-            select: { id: true },
-          },
-          asignaciones: {
-            include: {
-              user: true,
-            },
-          },
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-      });
+const optText = (v: string | null | undefined) => (v ? fixUtf8Mojibake(v) : undefined);
 
-      markDbSuccess();
-
-      for (const dp of dbProjects) {
-        const mapped: MockProject = {
-          id: dp.id,
-          cui: dp.cui,
-          nombre: fixUtf8Mojibake(dp.nombre),
-          nConvenio: fixUtf8Mojibake(dp.nConvenio),
-          modalidad: dp.modalidad || 'OxI LEY 29230',
-          fase: fixUtf8Mojibake(dp.fase || 'Ejecución Física'),
-          entidadEjecutora: fixUtf8Mojibake(dp.entidadEjecutora),
-          entidadSupervisora: dp.entidadSupervisora ? fixUtf8Mojibake(dp.entidadSupervisora) : undefined,
-          montoInversion: dp.montoInversion || undefined,
-          monto: dp.monto || dp.montoInversion || undefined,
-          plazoDias: dp.plazoDias || undefined,
-          plazo: dp.plazo || dp.plazoDias || undefined,
-          fechaInicio: dp.fechaInicio || undefined,
-          distrito: dp.distrito ? fixUtf8Mojibake(dp.distrito) : undefined,
-          localidad: dp.localidad ? fixUtf8Mojibake(dp.localidad) : undefined,
-          residenteNombre: dp.residenteNombre ? fixUtf8Mojibake(dp.residenteNombre) : null,
-          residenteCIP: dp.residenteCIP,
-          residenteDni: dp.residenteDni || undefined,
-          residenteCelular: dp.residenteCelular || undefined,
-          residenteEmail: dp.residenteEmail || undefined,
-          supervisorNombre: dp.supervisorNombre ? fixUtf8Mojibake(dp.supervisorNombre) : null,
-          supervisorCIP: dp.supervisorCIP,
-          supervisorDni: dp.supervisorDni || undefined,
-          supervisorEmpresa: dp.supervisorEmpresa ? fixUtf8Mojibake(dp.supervisorEmpresa) : undefined,
-          supervisorEmail: dp.supervisorEmail || undefined,
-          estado: normalizeState(dp.estado),
-          provincia: dp.provincia ? fixUtf8Mojibake(dp.provincia) : 'Chiclayo',
-          estadoObra: fixUtf8Mojibake(dp.estadoObra || 'En Ejecución'),
-          asientosCount: dp.asientos?.length || 0,
-          archivado: Boolean(dp.archivado),
-          fechaArchivado: dp.fechaArchivado || undefined,
-          archivadoPor: dp.archivadoPor ? fixUtf8Mojibake(dp.archivadoPor) : undefined,
-        };
-
-        projectMap.set(mapped.cui || mapped.id, mapped);
-        dbAssignedDnis.set(
-          mapped.cui || mapped.id,
-          new Set((dp.asignaciones || []).map((a) => String(a.user?.dni || '').trim().toLowerCase()))
-        );
-      }
-    } catch (dbErr) {
-      console.warn('Prisma DB no disponible al consultar proyectos, usando archivo persistente:', dbErr);
-      markDbFailure();
-    }
-  }
-
-  const allProjects = Array.from(projectMap.values());
-
-  // 3. Filtrado por rol y asignaciones del usuario
-  const roleUpper = String(filters?.role || '').toUpperCase().trim();
-  const cleanDni = String(filters?.userDni || '').trim().toLowerCase();
-
-  const isFullAdmin =
-    roleUpper.includes('ADMIN') ||
-    roleUpper.includes('JEFE') ||
-    roleUpper === 'ADMINISTRADOR';
-
-  // Administradores y Jefes de Proyecto ven TODOS los proyectos
-  if (isFullAdmin) {
-    return allProjects;
-  }
-
-  // Para usuarios con rol específico (Residente, Supervisor, etc.): solo proyectos asignados
-  // o donde figuran como residente/supervisor. Sin coincidencias no se muestra ninguno.
-  if (!cleanDni) return [];
-
-  const fileAssignments = await readAssignmentsFile();
-  const userAssignment = fileAssignments.find(
-    (a: any) =>
-      (a.dni && String(a.dni).trim().toLowerCase() === cleanDni) ||
-      (a.userId && String(a.userId).trim().toLowerCase() === cleanDni)
-  );
-  const fileAssignedIds = new Set<string>(
-    Array.isArray(userAssignment?.assignedProjectIds)
-      ? userAssignment.assignedProjectIds.map((id: string) => String(id).toLowerCase())
-      : []
-  );
-
-  return allProjects.filter((p) => {
-    const isFileAssigned = fileAssignedIds.has(String(p.id).toLowerCase()) || fileAssignedIds.has(String(p.cui).toLowerCase());
-    const isDbAssigned = dbAssignedDnis.get(p.cui || p.id)?.has(cleanDni) ?? false;
-    const isResident = p.residenteDni && String(p.residenteDni).trim().toLowerCase() === cleanDni;
-    const isSupervisor = p.supervisorDni && String(p.supervisorDni).trim().toLowerCase() === cleanDni;
-    return isFileAssigned || isDbAssigned || isResident || isSupervisor;
-  });
-}
-
-// Guardar o actualizar un proyecto en el servidor y en la base de datos
-export async function saveServerProject(projectData: Partial<MockProject>): Promise<MockProject> {
-  const cleanCui = String(projectData.cui || '').trim();
-  if (!cleanCui) {
-    throw new Error('El CUI del proyecto es obligatorio.');
-  }
-
-  const cleanNombre = fixUtf8Mojibake(String(projectData.nombre || '').trim().toUpperCase() || 'PROYECTO DE INVERSIÓN');
-  const cleanConvenio = fixUtf8Mojibake(String(projectData.nConvenio || '').trim() || `CONVENIO OXI-${cleanCui}`);
-  const cleanModalidad = fixUtf8Mojibake(String(projectData.modalidad || 'OxI LEY 29230').trim());
-  const cleanFase = fixUtf8Mojibake(String(projectData.fase || 'Ejecución Física').trim());
-  const cleanEjecutora = fixUtf8Mojibake(String(projectData.entidadEjecutora || 'Entidad Ejecutora S.A.C.').trim());
-  const cleanEstado = normalizeState(projectData.estado);
-  const cleanProvincia = fixUtf8Mojibake(String(projectData.provincia || 'Chiclayo').trim());
-  const cleanEstadoObra = fixUtf8Mojibake(String(projectData.estadoObra || 'En Ejecución').trim());
-
-  const allProjects = await readProjectsFile();
-  const existingIndex = allProjects.findIndex((p) => p.cui === cleanCui || (projectData.id && p.id === projectData.id));
-
-  const projectId = projectData.id || (existingIndex >= 0 ? allProjects[existingIndex].id : `p-${cleanCui}`);
-
-  const fullProject: MockProject = {
-    id: projectId,
-    cui: cleanCui,
-    nombre: cleanNombre,
-    nConvenio: cleanConvenio,
-    modalidad: cleanModalidad,
-    fase: cleanFase,
-    entidadEjecutora: cleanEjecutora,
-    entidadSupervisora: projectData.entidadSupervisora ? fixUtf8Mojibake(String(projectData.entidadSupervisora).trim()) : undefined,
-    montoInversion: projectData.montoInversion ? String(projectData.montoInversion).trim() : undefined,
-    monto: projectData.monto || projectData.montoInversion ? String(projectData.monto || projectData.montoInversion).trim() : undefined,
-    plazoDias: projectData.plazoDias ? String(projectData.plazoDias).trim() : undefined,
-    plazo: projectData.plazo || projectData.plazoDias ? String(projectData.plazo || projectData.plazoDias).trim() : undefined,
-    fechaInicio: projectData.fechaInicio ? String(projectData.fechaInicio).trim() : undefined,
-    distrito: projectData.distrito ? fixUtf8Mojibake(String(projectData.distrito).trim()) : undefined,
-    localidad: projectData.localidad ? fixUtf8Mojibake(String(projectData.localidad).trim()) : undefined,
-    residenteNombre: projectData.residenteNombre ? fixUtf8Mojibake(String(projectData.residenteNombre).trim()) : null,
-    residenteCIP: projectData.residenteCIP ? String(projectData.residenteCIP).trim() : null,
-    residenteDni: projectData.residenteDni ? String(projectData.residenteDni).trim() : null,
-    residenteCelular: projectData.residenteCelular ? String(projectData.residenteCelular).trim() : null,
-    residenteEmail: projectData.residenteEmail ? String(projectData.residenteEmail).trim() : null,
-    supervisorNombre: projectData.supervisorNombre ? fixUtf8Mojibake(String(projectData.supervisorNombre).trim()) : null,
-    supervisorCIP: projectData.supervisorCIP ? String(projectData.supervisorCIP).trim() : null,
-    supervisorDni: projectData.supervisorDni ? String(projectData.supervisorDni).trim() : null,
-    supervisorEmpresa: projectData.supervisorEmpresa ? fixUtf8Mojibake(String(projectData.supervisorEmpresa).trim()) : null,
-    supervisorEmail: projectData.supervisorEmail ? String(projectData.supervisorEmail).trim() : null,
-    estado: cleanEstado,
-    provincia: cleanProvincia,
-    estadoObra: cleanEstadoObra,
-    asientosCount: projectData.asientosCount !== undefined ? Number(projectData.asientosCount) : (existingIndex >= 0 ? allProjects[existingIndex].asientosCount || 0 : 0),
-    archivado: Boolean(projectData.archivado),
-    fechaArchivado: projectData.fechaArchivado ? String(projectData.fechaArchivado).trim() : undefined,
-    archivadoPor: projectData.archivadoPor ? fixUtf8Mojibake(String(projectData.archivadoPor).trim()) : undefined,
+function toProjectDto(dp: DbProject): MockProject {
+  return {
+    id: dp.id,
+    cui: dp.cui,
+    nombre: fixUtf8Mojibake(dp.nombre),
+    nConvenio: fixUtf8Mojibake(dp.nConvenio),
+    modalidad: dp.modalidad || 'OxI LEY 29230',
+    fase: fixUtf8Mojibake(dp.fase || 'Ejecución Física'),
+    entidadEjecutora: fixUtf8Mojibake(dp.entidadEjecutora),
+    entidadSupervisora: optText(dp.entidadSupervisora),
+    montoInversion: dp.montoInversion || undefined,
+    monto: dp.monto || dp.montoInversion || undefined,
+    plazoDias: dp.plazoDias || undefined,
+    plazo: dp.plazo || dp.plazoDias || undefined,
+    fechaInicio: dp.fechaInicio || undefined,
+    distrito: optText(dp.distrito),
+    localidad: optText(dp.localidad),
+    residenteNombre: dp.residenteNombre ? fixUtf8Mojibake(dp.residenteNombre) : null,
+    residenteCIP: dp.residenteCIP,
+    residenteDni: dp.residenteDni || undefined,
+    residenteCelular: dp.residenteCelular || undefined,
+    residenteEmail: dp.residenteEmail || undefined,
+    supervisorNombre: dp.supervisorNombre ? fixUtf8Mojibake(dp.supervisorNombre) : null,
+    supervisorCIP: dp.supervisorCIP,
+    supervisorDni: dp.supervisorDni || undefined,
+    supervisorEmpresa: optText(dp.supervisorEmpresa),
+    supervisorEmail: dp.supervisorEmail || undefined,
+    estado: normalizeState(dp.estado),
+    provincia: dp.provincia ? fixUtf8Mojibake(dp.provincia) : 'Chiclayo',
+    estadoObra: fixUtf8Mojibake(dp.estadoObra || 'En Ejecución'),
+    asientosCount: dp._count.asientos,
+    archivado: Boolean(dp.archivado),
+    fechaArchivado: dp.fechaArchivado || undefined,
+    archivadoPor: optText(dp.archivadoPor),
   };
-
-  // 1. Guardar en almacenamiento de archivo persistente del servidor
-  if (existingIndex >= 0) {
-    allProjects[existingIndex] = fullProject;
-  } else {
-    allProjects.unshift(fullProject);
-  }
-  await writeProjectsFile(allProjects);
-
-  // 2. Guardar en Base de Datos PostgreSQL Prisma
-  if (canAttemptDb()) {
-    try {
-      await prisma.project.upsert({
-        where: { cui: cleanCui },
-        update: {
-          nombre: fullProject.nombre,
-          nConvenio: fullProject.nConvenio,
-          modalidad: fullProject.modalidad,
-          fase: fullProject.fase,
-          entidadEjecutora: fullProject.entidadEjecutora,
-          entidadSupervisora: fullProject.entidadSupervisora || null,
-          montoInversion: fullProject.montoInversion ? String(fullProject.montoInversion) : null,
-          monto: fullProject.monto ? String(fullProject.monto) : null,
-          plazoDias: fullProject.plazoDias ? String(fullProject.plazoDias) : null,
-          plazo: fullProject.plazo ? String(fullProject.plazo) : null,
-          fechaInicio: fullProject.fechaInicio || null,
-          distrito: fullProject.distrito || null,
-          localidad: fullProject.localidad || null,
-          residenteNombre: fullProject.residenteNombre,
-          residenteCIP: fullProject.residenteCIP,
-          residenteDni: fullProject.residenteDni,
-          residenteCelular: fullProject.residenteCelular,
-          residenteEmail: fullProject.residenteEmail,
-          supervisorNombre: fullProject.supervisorNombre,
-          supervisorCIP: fullProject.supervisorCIP,
-          supervisorDni: fullProject.supervisorDni,
-          supervisorEmpresa: fullProject.supervisorEmpresa,
-          supervisorEmail: fullProject.supervisorEmail,
-          estado: fullProject.estado,
-          provincia: fullProject.provincia,
-          estadoObra: fullProject.estadoObra,
-          archivado: fullProject.archivado,
-          fechaArchivado: fullProject.fechaArchivado || null,
-          archivadoPor: fullProject.archivadoPor || null,
-        },
-        create: {
-          id: fullProject.id,
-          cui: cleanCui,
-          nombre: fullProject.nombre,
-          nConvenio: fullProject.nConvenio,
-          modalidad: fullProject.modalidad,
-          fase: fullProject.fase,
-          entidadEjecutora: fullProject.entidadEjecutora,
-          entidadSupervisora: fullProject.entidadSupervisora || null,
-          montoInversion: fullProject.montoInversion ? String(fullProject.montoInversion) : null,
-          monto: fullProject.monto ? String(fullProject.monto) : null,
-          plazoDias: fullProject.plazoDias ? String(fullProject.plazoDias) : null,
-          plazo: fullProject.plazo ? String(fullProject.plazo) : null,
-          fechaInicio: fullProject.fechaInicio || null,
-          distrito: fullProject.distrito || null,
-          localidad: fullProject.localidad || null,
-          residenteNombre: fullProject.residenteNombre,
-          residenteCIP: fullProject.residenteCIP,
-          residenteDni: fullProject.residenteDni,
-          residenteCelular: fullProject.residenteCelular,
-          residenteEmail: fullProject.residenteEmail,
-          supervisorNombre: fullProject.supervisorNombre,
-          supervisorCIP: fullProject.supervisorCIP,
-          supervisorDni: fullProject.supervisorDni,
-          supervisorEmpresa: fullProject.supervisorEmpresa,
-          supervisorEmail: fullProject.supervisorEmail,
-          estado: fullProject.estado,
-          provincia: fullProject.provincia,
-          estadoObra: fullProject.estadoObra,
-          archivado: fullProject.archivado,
-          fechaArchivado: fullProject.fechaArchivado || null,
-          archivadoPor: fullProject.archivadoPor || null,
-        },
-      });
-
-      // 3. Asignación automática RBAC en DB si el Residente o Supervisor tienen usuario registrado
-      const dnisToAssign = [fullProject.residenteDni, fullProject.supervisorDni].filter(Boolean) as string[];
-      for (const dni of dnisToAssign) {
-        try {
-          const matchedUser = await prisma.user.findFirst({
-            where: { dni: dni.trim() },
-          });
-          if (matchedUser) {
-            await prisma.userProjectAssignment.upsert({
-              where: {
-                userId_projectId: {
-                  userId: matchedUser.id,
-                  projectId: fullProject.id,
-                },
-              },
-              update: {},
-              create: {
-                userId: matchedUser.id,
-                projectId: fullProject.id,
-              },
-            });
-          }
-        } catch (assignErr) {
-          console.warn(`No se pudo auto-asignar usuario DNI ${dni} al proyecto:`, assignErr);
-        }
-      }
-
-      markDbSuccess();
-    } catch (dbErr) {
-      console.warn('Error al persistir proyecto en Prisma DB, guardado en archivo local:', dbErr);
-      markDbFailure();
-    }
-  }
-
-  // 4. Actualizar asignaciones en archivo local para el Residente y Supervisor
-  try {
-    const currentAssignments = await readAssignmentsFile();
-    let assignmentsUpdated = false;
-    const dnis = [fullProject.residenteDni, fullProject.supervisorDni].filter(Boolean) as string[];
-
-    for (const d of dnis) {
-      const match = currentAssignments.find(
-        (a: any) => a.dni && String(a.dni).trim().toLowerCase() === d.trim().toLowerCase()
-      );
-      if (match) {
-        if (!Array.isArray(match.assignedProjectIds)) match.assignedProjectIds = [];
-        if (!match.assignedProjectIds.includes(fullProject.id)) {
-          match.assignedProjectIds.push(fullProject.id);
-          assignmentsUpdated = true;
-        }
-      }
-    }
-
-    if (assignmentsUpdated) {
-      await writeAssignmentsFile(currentAssignments);
-    }
-  } catch (err) {
-    console.warn('Error al actualizar asignaciones locales:', err);
-  }
-
-  return fullProject;
 }
 
-// Guardar múltiples proyectos en lote
-export async function saveServerProjectsBatch(projects: Partial<MockProject>[]): Promise<MockProject[]> {
-  const savedList: MockProject[] = [];
+/** Administradores y Jefes de Proyecto ven todos los proyectos. */
+export function canSeeAllProjects(role?: string): boolean {
+  const upper = String(role || '').toUpperCase();
+  return upper.includes('ADMIN') || upper.includes('JEFE');
+}
+
+// Proyectos visibles para el usuario: todos (admin/jefe) o los asignados / donde figura como residente o supervisor
+export async function getServerProjects(filters?: { userDni?: string; role?: string }): Promise<MockProject[]> {
+  let where: Prisma.ProjectWhereInput = {};
+  if (!canSeeAllProjects(filters?.role)) {
+    const dni = String(filters?.userDni || '').trim();
+    if (!dni) return [];
+    where = {
+      OR: [
+        { asignaciones: { some: { user: { dni } } } },
+        { residenteDni: dni },
+        { supervisorDni: dni },
+      ],
+    };
+  }
+
+  const rows = await prisma.project.findMany({ where, include: projectInclude, orderBy: { createdAt: 'desc' } });
+  return rows.map(toProjectDto);
+}
+
+const clean = (v: unknown) => fixUtf8Mojibake(String(v ?? '').trim());
+const cleanOrNull = (v: unknown) => {
+  const s = String(v ?? '').trim();
+  return s ? fixUtf8Mojibake(s) : null;
+};
+
+/** Campos editables del proyecto a partir de lo enviado por el formulario. */
+function toProjectData(p: Partial<MockProject>) {
+  return {
+    nombre: clean(p.nombre).toUpperCase(),
+    nConvenio: clean(p.nConvenio),
+    modalidad: clean(p.modalidad) || 'OxI LEY 29230',
+    fase: clean(p.fase) || 'Ejecución Física',
+    entidadEjecutora: clean(p.entidadEjecutora),
+    entidadSupervisora: cleanOrNull(p.entidadSupervisora),
+    montoInversion: cleanOrNull(p.montoInversion ?? p.monto),
+    monto: cleanOrNull(p.monto ?? p.montoInversion),
+    plazoDias: cleanOrNull(p.plazoDias ?? p.plazo),
+    plazo: cleanOrNull(p.plazo ?? p.plazoDias),
+    fechaInicio: cleanOrNull(p.fechaInicio),
+    distrito: cleanOrNull(p.distrito),
+    localidad: cleanOrNull(p.localidad),
+    residenteNombre: cleanOrNull(p.residenteNombre),
+    residenteCIP: cleanOrNull(p.residenteCIP),
+    residenteDni: cleanOrNull(p.residenteDni),
+    residenteCelular: cleanOrNull(p.residenteCelular),
+    residenteEmail: cleanOrNull(p.residenteEmail),
+    supervisorNombre: cleanOrNull(p.supervisorNombre),
+    supervisorCIP: cleanOrNull(p.supervisorCIP),
+    supervisorDni: cleanOrNull(p.supervisorDni),
+    supervisorEmpresa: cleanOrNull(p.supervisorEmpresa),
+    supervisorEmail: cleanOrNull(p.supervisorEmail),
+    estado: normalizeState(p.estado),
+    provincia: clean(p.provincia) || 'Chiclayo',
+    estadoObra: clean(p.estadoObra) || 'En Ejecución',
+    archivado: Boolean(p.archivado),
+    fechaArchivado: cleanOrNull(p.fechaArchivado),
+    archivadoPor: cleanOrNull(p.archivadoPor),
+  };
+}
+
+function validate(data: ReturnType<typeof toProjectData>, cui: string) {
+  if (!/^\d{5,10}$/.test(cui)) throw new ProjectValidationError('El CUI es obligatorio y debe contener solo números (5 a 10 dígitos).');
+  if (!data.nombre) throw new ProjectValidationError('El nombre del proyecto es obligatorio.');
+  if (!data.entidadEjecutora) throw new ProjectValidationError('La entidad ejecutora es obligatoria.');
+}
+
+/** Asigna automáticamente el proyecto al residente y supervisor si tienen usuario registrado. */
+async function autoAssignStaff(projectId: string, dnis: (string | null)[]) {
+  for (const dni of dnis.filter(Boolean) as string[]) {
+    const user = await prisma.user.findUnique({ where: { dni } });
+    if (!user) continue;
+    await prisma.userProjectAssignment.upsert({
+      where: { userId_projectId: { userId: user.id, projectId } },
+      update: {},
+      create: { userId: user.id, projectId },
+    });
+  }
+}
+
+async function loadProject(id: string): Promise<MockProject> {
+  const row = await prisma.project.findUniqueOrThrow({ where: { id }, include: projectInclude });
+  return toProjectDto(row);
+}
+
+/** Busca un proyecto por id o CUI exactos. */
+export async function findProjectByRef(ref: string) {
+  const r = String(ref || '').trim();
+  if (!r) return null;
+  return prisma.project.findFirst({ where: { OR: [{ id: r }, { cui: r }] } });
+}
+
+/**
+ * Crea un proyecto nuevo. Falla si el CUI ya existe (no sobrescribe).
+ */
+export async function createServerProject(projectData: Partial<MockProject>, creatorDni?: string): Promise<MockProject> {
+  const cui = String(projectData.cui || '').trim();
+  const data = toProjectData(projectData);
+  if (!data.nConvenio) data.nConvenio = `CONVENIO OXI-${cui}`;
+  validate(data, cui);
+
+  if (await prisma.project.findUnique({ where: { cui } })) throw new ProjectConflictError(cui);
+
+  try {
+    const created = await prisma.project.create({ data: { id: `p-${cui}`, cui, ...data } });
+    // El creador queda asignado para que pueda ver el proyecto que registró
+    await autoAssignStaff(created.id, [data.residenteDni, data.supervisorDni, creatorDni || null]);
+    return loadProject(created.id);
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') throw new ProjectConflictError(cui);
+    throw err;
+  }
+}
+
+/**
+ * Actualiza un proyecto existente (por id). Solo cambia los campos enviados.
+ */
+export async function updateServerProject(id: string, projectData: Partial<MockProject>): Promise<MockProject> {
+  const existing = await prisma.project.findUnique({ where: { id } });
+  if (!existing) throw new ProjectValidationError('El proyecto no existe o fue eliminado.');
+
+  const merged = toProjectData({ ...(toProjectDto({ ...existing, _count: { asientos: 0 }, asignaciones: [] })), ...projectData });
+  const cui = String(projectData.cui ?? existing.cui).trim();
+  validate(merged, cui);
+
+  if (cui !== existing.cui && (await prisma.project.findUnique({ where: { cui } }))) throw new ProjectConflictError(cui);
+
+  await prisma.project.update({ where: { id }, data: { cui, ...merged } });
+  await autoAssignStaff(id, [merged.residenteDni, merged.supervisorDni]);
+  return loadProject(id);
+}
+
+/**
+ * Crea o actualiza (por CUI) — usado por la carga masiva desde Excel/CSV.
+ */
+export async function upsertServerProjectByCui(projectData: Partial<MockProject>): Promise<MockProject> {
+  const existing = await prisma.project.findUnique({ where: { cui: String(projectData.cui || '').trim() } });
+  return existing ? updateServerProject(existing.id, projectData) : createServerProject(projectData);
+}
+
+// Guardar múltiples proyectos en lote (carga masiva). Devuelve los guardados y los errores.
+export async function saveServerProjectsBatch(
+  projects: Partial<MockProject>[]
+): Promise<{ saved: MockProject[]; errors: { cui: string; error: string }[] }> {
+  const saved: MockProject[] = [];
+  const errors: { cui: string; error: string }[] = [];
   for (const p of projects) {
     try {
-      const saved = await saveServerProject(p);
-      savedList.push(saved);
+      saved.push(await upsertServerProjectByCui(p));
     } catch (err) {
-      console.error('Error al guardar proyecto en lote:', err);
+      errors.push({ cui: String(p.cui || '(sin CUI)'), error: err instanceof Error ? err.message : String(err) });
     }
   }
-  return savedList;
+  return { saved, errors };
 }
 
-// Eliminar proyecto en el servidor y base de datos
+// Eliminar proyecto (asientos, adjuntos y asignaciones en cascada). Devuelve false si no existía.
 export async function deleteServerProject(idOrCui: string): Promise<boolean> {
-  const cleanTarget = String(idOrCui || '').trim().toLowerCase();
-  if (!cleanTarget) return false;
+  const project = await findProjectByRef(idOrCui);
+  if (!project) return false;
+  const files = await prisma.attachment.findMany({
+    where: { asiento: { proyectoId: project.id } },
+    select: { rutaArchivo: true },
+  });
+  await prisma.project.delete({ where: { id: project.id } });
+  await removeAttachmentFiles(files.map((f) => f.rutaArchivo || ''));
+  return true;
+}
 
-  const allProjects = await readProjectsFile();
-  const filtered = allProjects.filter(
-    (p) => p.id.toLowerCase() !== cleanTarget && p.cui.toLowerCase() !== cleanTarget
-  );
-  await writeProjectsFile(filtered);
+// ---------------------------------------------------------------------------
+// Asignaciones usuario–proyecto (tabla UserProjectAssignment)
+// ---------------------------------------------------------------------------
 
-  if (canAttemptDb()) {
-    try {
-      await prisma.project.deleteMany({
-        where: {
-          OR: [{ id: idOrCui }, { cui: idOrCui }],
-        },
-      });
-      markDbSuccess();
-    } catch (dbErr) {
-      console.warn('Error al eliminar proyecto en base de datos:', dbErr);
-      markDbFailure();
+export interface UserAssignmentDto {
+  userId: string;
+  dni: string;
+  nombre: string;
+  apellidos: string;
+  rol: string;
+  assignedProjectIds: string[];
+  restrictVisibility: boolean;
+}
+
+export async function getAssignments(): Promise<UserAssignmentDto[]> {
+  const users = await prisma.user.findMany({
+    include: { asignaciones: { select: { projectId: true } } },
+    orderBy: { nombre: 'asc' },
+  });
+  return users.map((u) => ({
+    userId: u.id,
+    dni: u.dni,
+    nombre: fixUtf8Mojibake(u.nombre),
+    apellidos: fixUtf8Mojibake(u.apellidos),
+    rol: roleToDisplay(u.perfilAcceso),
+    assignedProjectIds: u.asignaciones.map((a) => a.projectId),
+    // La visibilidad siempre se limita a los proyectos asignados (salvo admin/jefe)
+    restrictVisibility: true,
+  }));
+}
+
+/**
+ * Reemplaza las asignaciones de los usuarios enviados (identificados por DNI o id).
+ * Devuelve los DNI/ids que no corresponden a un usuario de la base de datos.
+ */
+export async function saveAssignments(
+  items: { userId?: string; dni?: string; assignedProjectIds?: string[] }[]
+): Promise<{ updatedUsers: number; unknownUsers: string[]; unknownProjects: string[] }> {
+  const unknownUsers: string[] = [];
+  const unknownProjects = new Set<string>();
+  let updatedUsers = 0;
+
+  for (const item of items) {
+    const dni = String(item.dni || '').trim();
+    const user = dni
+      ? await prisma.user.findUnique({ where: { dni } })
+      : item.userId
+        ? await prisma.user.findUnique({ where: { id: String(item.userId) } })
+        : null;
+    if (!user) {
+      unknownUsers.push(dni || String(item.userId || '?'));
+      continue;
     }
+
+    const projectIds: string[] = [];
+    for (const ref of item.assignedProjectIds || []) {
+      const project = await findProjectByRef(ref);
+      if (project) projectIds.push(project.id);
+      else unknownProjects.add(String(ref));
+    }
+
+    await prisma.$transaction([
+      prisma.userProjectAssignment.deleteMany({ where: { userId: user.id } }),
+      prisma.userProjectAssignment.createMany({
+        data: [...new Set(projectIds)].map((projectId) => ({ userId: user.id, projectId })),
+      }),
+    ]);
+    updatedUsers++;
   }
 
-  return true;
+  return { updatedUsers, unknownUsers, unknownProjects: [...unknownProjects] };
 }

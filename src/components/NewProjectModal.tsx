@@ -47,12 +47,14 @@ function formatDateForInput(dateVal: any): string {
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onSaveProject: (project: MockProject) => void;
+  // Debe devolver true solo si el proyecto quedó guardado en la base de datos
+  onSaveProject: (project: MockProject) => Promise<boolean>;
   projectToEdit?: MockProject | null;
 }
 
 export default function NewProjectModal({ isOpen, onClose, onSaveProject, projectToEdit }: Props) {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Step 1: Datos Generales State
   const [cui, setCui] = useState('');
@@ -248,17 +250,25 @@ export default function NewProjectModal({ isOpen, onClose, onSaveProject, projec
     }
   };
 
-  const handleFinalSubmit = () => {
+  const handleFinalSubmit = async () => {
+    if (isSaving) return;
+    const cleanCui = (cui || projectToEdit?.cui || '').trim();
+    if (!cleanCui || !nombre.trim() || !empresa.trim()) {
+      alert('Por favor complete el CUI, el nombre del proyecto y la empresa ejecutora (*).');
+      setCurrentStep(1);
+      return;
+    }
     const savedProject: MockProject = {
       ...(projectToEdit || {}),
-      id: projectToEdit ? projectToEdit.id : `p-${cui || Date.now()}`,
-      cui: cui || (projectToEdit?.cui || `2456${Math.floor(100 + Math.random() * 900)}`),
-      nombre: nombre.toUpperCase() || 'PROYECTO DE INVERSIÓN',
-      nConvenio: convenio || (projectToEdit?.nConvenio || `CONVENIO OXI-0${Math.floor(10 + Math.random() * 90)}-2026-GR.LAMB`),
+      // Sin id para proyectos nuevos: el servidor lo asigna al guardar en la base de datos
+      id: projectToEdit ? projectToEdit.id : '',
+      cui: cleanCui,
+      nombre: nombre.toUpperCase(),
+      nConvenio: convenio || projectToEdit?.nConvenio || '',
       modalidad: projectToEdit?.modalidad || 'OXI LEY 29230',
       fase: projectToEdit?.fase || 'Ejecución Física',
-      entidadEjecutora: empresa || 'Empresa Ejecutora de Obra S.A.C.',
-      entidadSupervisora: entidadSupervisora || 'Entidad Privada Supervisora S.A.',
+      entidadEjecutora: empresa,
+      entidadSupervisora: entidadSupervisora || undefined,
       montoInversion: monto || null,
       monto: monto || null,
       plazoDias: plazo || null,
@@ -282,13 +292,14 @@ export default function NewProjectModal({ isOpen, onClose, onSaveProject, projec
       asientosCount: projectToEdit ? (projectToEdit.asientosCount || 0) : 0,
     };
 
-    onSaveProject(savedProject);
-    onClose();
-  };
-
-  const handleSaveDraft = () => {
-    alert('Borrador del proyecto guardado localmente.');
-    onClose();
+    setIsSaving(true);
+    try {
+      // El modal solo se cierra si el proyecto quedó guardado en la base de datos
+      const ok = await onSaveProject(savedProject);
+      if (ok) onClose();
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -742,10 +753,11 @@ export default function NewProjectModal({ isOpen, onClose, onSaveProject, projec
           <div className="flex items-center space-x-3">
             <button
               type="button"
-              onClick={handleSaveDraft}
+              onClick={onClose}
+              disabled={isSaving}
               className="px-4 py-2 border border-[#8F706C] text-[#1A1C1C] hover:bg-gray-50 rounded-lg text-xs font-bold transition-all"
             >
-              Guardar como Borrador
+              Cancelar
             </button>
 
             {currentStep < 3 ? (
@@ -761,9 +773,10 @@ export default function NewProjectModal({ isOpen, onClose, onSaveProject, projec
               <button
                 type="button"
                 onClick={handleFinalSubmit}
-                className="px-5 py-2 bg-[#91000A] hover:bg-[#B71C1C] text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-md transition-all"
+                disabled={isSaving}
+                className="px-5 py-2 bg-[#91000A] hover:bg-[#B71C1C] text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-md transition-all disabled:opacity-60"
               >
-                <span>{projectToEdit ? 'Guardar Cambios del Proyecto' : 'Habilitar Cuaderno de Incidencias'}</span>
+                <span>{isSaving ? 'Guardando en la base de datos…' : projectToEdit ? 'Guardar Cambios del Proyecto' : 'Habilitar Cuaderno de Incidencias'}</span>
                 <CheckCircle2 className="w-4 h-4" />
               </button>
             )}

@@ -36,6 +36,7 @@ import IncidenceTypesModal from '@/components/IncidenceTypesModal';
 import DatabaseBackupModal from '@/components/DatabaseBackupModal';
 import { INITIAL_PROJECTS, MockProject, MockIncidenceEntry } from '@/lib/mockData';
 import { fetchIncidences } from '@/lib/useIncidences';
+import { fetchProjects, saveProject } from '@/lib/projectsApi';
 
 export default function ArchivedNotebooksPage() {
   const [projects, setProjects] = useState<MockProject[]>([]);
@@ -62,29 +63,12 @@ export default function ArchivedNotebooksPage() {
       setUserRole(role.toUpperCase());
       setUserName(name);
 
-      // Cargar lista de proyectos
-      const savedProjectsStr = localStorage.getItem('app_projects_list');
-      if (savedProjectsStr) {
-        try {
-          const parsed = JSON.parse(savedProjectsStr);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setProjects(parsed);
-            return;
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      }
-      setProjects(INITIAL_PROJECTS);
+      // Proyectos leídos de la base de datos
+      fetchProjects()
+        .then(setProjects)
+        .catch((err) => alert(`❌ ${err instanceof Error ? err.message : 'No se pudieron cargar los proyectos.'}`));
     }
   }, []);
-
-  const saveProjectsToStorage = (newList: MockProject[]) => {
-    setProjects(newList);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('app_projects_list', JSON.stringify(newList));
-    }
-  };
 
   const isSupervisorOrAdmin = ['SUPERVISOR', 'SUPERVISOR_DE_OBRA', 'SUPERVISOR_DE_PROYECTO', 'ADMINISTRADOR', 'ADMIN'].includes(userRole);
 
@@ -120,21 +104,16 @@ export default function ArchivedNotebooksPage() {
   };
 
   // Desarchivar Proyecto (Opción exclusiva de Supervisión/Administración)
-  const handleUnarchiveProject = (proj: MockProject) => {
-    if (confirm(`¿Está seguro de DESARCHIVAR el proyecto CUI ${proj.cui} (${proj.nombre}) y retornar su Cuaderno Digital a estado ACTIVO?`)) {
-      const updatedList = projects.map((p) => {
-        if (p.id === proj.id) {
-          return {
-            ...p,
-            estado: 'ACTIVO' as const,
-            archivado: false,
-            estadoObra: 'En Ejecución Física (Reactivado)',
-          };
-        }
-        return p;
-      });
-      saveProjectsToStorage(updatedList);
+  const handleUnarchiveProject = async (proj: MockProject) => {
+    if (!confirm(`¿Está seguro de DESARCHIVAR el proyecto CUI ${proj.cui} (${proj.nombre}) y retornar su Cuaderno Digital a estado ACTIVO?`)) {
+      return;
+    }
+    try {
+      await saveProject({ ...proj, estado: 'ACTIVO', archivado: false, estadoObra: 'En Ejecución Física (Reactivado)' });
+      setProjects(await fetchProjects());
       alert(`✅ El proyecto CUI ${proj.cui} ha sido reabierto y reactivado exitosamente.`);
+    } catch (err) {
+      alert(`❌ ${err instanceof Error ? err.message : 'No se pudo desarchivar el proyecto.'}`);
     }
   };
 

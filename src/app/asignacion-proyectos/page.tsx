@@ -28,7 +28,7 @@ import { INITIAL_PROJECTS, MockProject } from '@/lib/mockData';
 import UserManagementModal from '@/components/UserManagementModal';
 import IncidenceTypesModal from '@/components/IncidenceTypesModal';
 import DatabaseBackupModal from '@/components/DatabaseBackupModal';
-import { getRegisteredUsers, AppUser } from '@/lib/users';
+import { fetchProjects } from '@/lib/projectsApi';
 import Sidebar from '@/components/Sidebar';
 import NotificationsDropdown from '@/components/NotificationsDropdown';
 
@@ -71,106 +71,27 @@ export default function AsignacionProyectosPage() {
   const [isSettingsDropdownOpen, setIsSettingsDropdownOpen] = useState(false);
   const [userRole, setUserRole] = useState('ADMINISTRADOR');
 
-  // Función para cargar y sincronizar los usuarios del registro con las asignaciones de proyectos
-  const loadAndSyncUsers = useCallback(() => {
-    if (typeof window === 'undefined') return;
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
-    // 1. Obtener los usuarios registrados actuales desde localStorage o lib/users
-    let registeredUsers: AppUser[] = getRegisteredUsers();
-    const savedReg = localStorage.getItem('app_registered_users');
-    if (savedReg) {
-      try {
-        const parsed = JSON.parse(savedReg);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          registeredUsers = parsed.map((u: Record<string, unknown>) => ({
-            id: String(u.id || `u-${u.dni}`),
-            nombre: String(u.nombre || ''),
-            apellidos: String(u.apellidos || ''),
-            dni: String(u.dni || ''),
-            cip: u.cip ? String(u.cip) : undefined,
-            email: String(u.email || ''),
-            telefono: String(u.telefono || ''),
-            usuario: String(u.usuario || u.dni || ''),
-            contrasena: String(u.contrasena || '123456'),
-            rol: (u.rol as AppUser['rol']) || 'RESIDENTE',
-            rolDisplay: String(
-              u.rolDisplay ||
-              (u.rol === 'ADMINISTRADOR' ? 'Administrador' :
-                u.rol === 'SUPERVISOR_DE_OBRA' ? 'Supervisor de obra' :
-                  u.rol === 'JEFE_DE_PROYECTO' ? 'Jefe de Proyecto' :
-                    u.rol === 'SUPERVISOR_DE_PROYECTO' ? 'Supervisor de Proyecto' : 'Residente')
-            ),
-          }));
-        }
-      } catch (e) {
-        console.error('Error al leer app_registered_users:', e);
+  // Usuarios, asignaciones y proyectos leídos de la base de datos
+  const loadAndSyncUsers = useCallback(async () => {
+    try {
+      const [assignRes, projectList] = await Promise.all([
+        fetch('/api/projects/assignments', { cache: 'no-store' }).then((r) => r.json()),
+        fetchProjects(),
+      ]);
+      if (!assignRes?.success) throw new Error(assignRes?.error || 'No se pudieron obtener las asignaciones.');
+
+      const list: UserAssignment[] = assignRes.assignments;
+      setProjects(projectList);
+      setUsersAssignments(list);
+      setLoadError(null);
+      if (list.length > 0) {
+        setSelectedUserId((currentId) => (list.some((u) => u.userId === currentId) ? currentId : list[0].userId));
       }
-    }
-
-    // 2. Obtener asignaciones de proyectos guardadas previamente
-    let storedAssignmentsMap: Record<string, { assignedProjectIds: string[]; restrictVisibility: boolean }> = {};
-    const storedAssignments = localStorage.getItem('app_user_project_assignments');
-    if (storedAssignments) {
-      try {
-        const parsedAssignments: UserAssignment[] = JSON.parse(storedAssignments);
-        if (Array.isArray(parsedAssignments)) {
-          parsedAssignments.forEach((a) => {
-            storedAssignmentsMap[a.userId] = {
-              assignedProjectIds: a.assignedProjectIds || [],
-              restrictVisibility: a.restrictVisibility !== undefined ? a.restrictVisibility : true,
-            };
-            if (a.dni) {
-              storedAssignmentsMap[a.dni] = storedAssignmentsMap[a.userId];
-            }
-          });
-        }
-      } catch (e) {
-        console.error('Error al parsear app_user_project_assignments:', e);
-      }
-    }
-
-    // 3. Mapear cada usuario del registro a la estructura de asignación
-    const savedProjects = localStorage.getItem('app_projects_list');
-    let currentProjects = INITIAL_PROJECTS;
-    if (savedProjects) {
-      try {
-        const parsed = JSON.parse(savedProjects);
-        if (Array.isArray(parsed) && parsed.length > 0) currentProjects = parsed;
-      } catch (e) {}
-    }
-
-    const mergedAssignments: UserAssignment[] = registeredUsers.map((regUser) => {
-      const uId = regUser.id || `u-${regUser.dni}`;
-      const prev = storedAssignmentsMap[uId] || storedAssignmentsMap[regUser.dni];
-
-      const rolText = regUser.rolDisplay || (
-        regUser.rol === 'ADMINISTRADOR' ? 'Administrador' :
-          regUser.rol === 'SUPERVISOR_DE_OBRA' ? 'Supervisor de obra' :
-            regUser.rol === 'JEFE_DE_PROYECTO' ? 'Jefe de Proyecto' :
-              regUser.rol === 'SUPERVISOR_DE_PROYECTO' ? 'Supervisor de Proyecto' : 'Residente'
-      );
-
-      const isAdmin = regUser.rol === 'ADMINISTRADOR' || rolText === 'Administrador';
-
-      return {
-        userId: uId,
-        nombre: regUser.nombre,
-        apellidos: regUser.apellidos,
-        dni: regUser.dni,
-        rol: rolText,
-        assignedProjectIds: prev ? prev.assignedProjectIds : (isAdmin ? currentProjects.map((p) => p.id) : []),
-        restrictVisibility: prev ? prev.restrictVisibility : !isAdmin,
-      };
-    });
-
-    setUsersAssignments(mergedAssignments);
-
-    // Asegurar que selectedUserId pertenezca a la lista actual
-    if (mergedAssignments.length > 0) {
-      setSelectedUserId((currentId) => {
-        const exists = mergedAssignments.some((u) => u.userId === currentId);
-        return exists ? currentId : mergedAssignments[0].userId;
-      });
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'No se pudieron cargar los datos del servidor.');
     }
   }, []);
 
@@ -178,41 +99,6 @@ export default function AsignacionProyectosPage() {
     if (typeof window !== 'undefined') {
       const role = localStorage.getItem('user_role');
       if (role) setUserRole(role);
-
-      // Sincronizar proyectos desde el servidor
-      fetch('/api/projects?role=ADMINISTRADOR')
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.success && Array.isArray(data.projects)) {
-            setProjects(data.projects);
-            localStorage.setItem('app_projects_list', JSON.stringify(data.projects));
-          }
-        })
-        .catch((e) => console.warn('Error al cargar proyectos del servidor:', e));
-
-      // Sincronizar asignaciones desde el servidor
-      fetch('/api/projects/assignments')
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.success && Array.isArray(data.assignments) && data.assignments.length > 0) {
-            localStorage.setItem('app_user_project_assignments', JSON.stringify(data.assignments));
-            loadAndSyncUsers();
-          }
-        })
-        .catch((e) => console.warn('Error al cargar asignaciones del servidor:', e));
-
-      const savedProjects = localStorage.getItem('app_projects_list');
-      if (savedProjects) {
-        try {
-          const parsed = JSON.parse(savedProjects);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setProjects(parsed);
-          }
-        } catch (e) {
-          console.error('Error al cargar proyectos en asignación:', e);
-        }
-      }
-
       loadAndSyncUsers();
     }
   }, [loadAndSyncUsers]);
@@ -275,21 +161,22 @@ export default function AsignacionProyectosPage() {
 
   // Guardar Cambios en localStorage y Base de Datos
   const handleSaveAssignments = async () => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('app_user_project_assignments', JSON.stringify(usersAssignments));
-    }
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
-
-    // Sincronizar inmediatamente con el servidor y la base de datos
+    setIsSaving(true);
     try {
-      await fetch('/api/projects/assignments', {
+      const res = await fetch('/api/projects/assignments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ assignments: usersAssignments }),
       });
-    } catch (apiErr) {
-      console.warn('Error al persistir asignaciones en el servidor:', apiErr);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Las asignaciones no se guardaron.');
+      await loadAndSyncUsers();
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3000);
+    } catch (err) {
+      alert(`❌ ${err instanceof Error ? err.message : 'Las asignaciones no se guardaron.'}`);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -475,6 +362,12 @@ export default function AsignacionProyectosPage() {
                 </div>
 
                 {/* Notificaciones */}
+                {loadError && (
+                  <div className="px-4 py-2.5 bg-[#FFDAD6] border border-[#BA1A1A]/40 text-[#93000A] rounded-lg text-xs font-bold flex items-center justify-between gap-3">
+                    <span>⚠️ {loadError}</span>
+                    <button onClick={() => loadAndSyncUsers()} className="underline shrink-0">Reintentar</button>
+                  </div>
+                )}
                 {savedSuccess && (
                   <div className="px-4 py-2.5 bg-green-100 border border-green-300 text-green-900 rounded-lg text-xs font-bold flex items-center space-x-2 animate-in fade-in">
                     <CheckCircle2 className="w-4 h-4 text-green-700" />
@@ -641,10 +534,11 @@ export default function AsignacionProyectosPage() {
                         <button
                           type="button"
                           onClick={handleSaveAssignments}
-                          className="w-full py-2.5 bg-[#91000A] hover:bg-[#B71C1C] text-white font-bold rounded shadow-md text-xs uppercase tracking-wide flex items-center justify-center space-x-2 transition-all"
+                          disabled={isSaving}
+                          className="w-full py-2.5 bg-[#91000A] hover:bg-[#B71C1C] text-white font-bold rounded shadow-md text-xs uppercase tracking-wide flex items-center justify-center space-x-2 transition-all disabled:opacity-60"
                         >
                           <Save className="w-4 h-4" />
-                          <span>Guardar Asignaciones para {selectedUser.nombre}</span>
+                          <span>{isSaving ? 'Guardando en la base de datos…' : `Guardar Asignaciones para ${selectedUser.nombre}`}</span>
                         </button>
                       </div>
                     </div>
@@ -769,9 +663,10 @@ export default function AsignacionProyectosPage() {
                         <button
                           type="button"
                           onClick={handleSaveAssignments}
-                          className="px-3 py-1 bg-[#91000A] text-white rounded font-bold hover:bg-[#B71C1C]"
+                          disabled={isSaving}
+                          className="px-3 py-1 bg-[#91000A] text-white rounded font-bold hover:bg-[#B71C1C] disabled:opacity-60"
                         >
-                          Guardar Todo
+                          {isSaving ? 'Guardando…' : 'Guardar Todo'}
                         </button>
                       </div>
                     </div>

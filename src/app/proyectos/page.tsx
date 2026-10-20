@@ -34,6 +34,7 @@ import UserManagementModal from '@/components/UserManagementModal';
 import IncidenceTypesModal from '@/components/IncidenceTypesModal';
 import DatabaseBackupModal from '@/components/DatabaseBackupModal';
 import NewProjectModal from '@/components/NewProjectModal';
+import { fetchProjects, saveProject, saveProjectsBulk } from '@/lib/projectsApi';
 import EditProjectModal from '@/components/EditProjectModal';
 import Sidebar from '@/components/Sidebar';
 import NotificationsDropdown from '@/components/NotificationsDropdown';
@@ -62,44 +63,15 @@ export default function CarteraProyectosPage() {
   const [uploadNotification, setUploadNotification] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Función para sincronizar proyectos desde la base de datos del servidor (/api/projects)
-  const syncProjectsFromServer = useCallback(async (currentRole?: string, currentDni?: string) => {
+  // Proyectos leídos de la base de datos (sin usar copias del navegador como respaldo)
+  const [projectsError, setProjectsError] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const syncProjectsFromServer = useCallback(async (_role?: string, _dni?: string) => {
     try {
-      const roleParam = currentRole || (typeof window !== 'undefined' ? localStorage.getItem('user_role') || '' : '');
-      const dniParam = currentDni || (typeof window !== 'undefined' ? localStorage.getItem('user_dni') || '' : '');
-      
-      const query = new URLSearchParams();
-      if (roleParam) query.set('role', roleParam);
-      if (dniParam) query.set('userDni', dniParam);
-
-      const res = await fetch(`/api/projects?${query.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && Array.isArray(data.projects) && data.projects.length > 0) {
-          setProjects(data.projects);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('app_projects_list', JSON.stringify(data.projects));
-          }
-          return;
-        }
-      }
+      setProjects(await fetchProjects());
+      setProjectsError(null);
     } catch (err) {
-      console.warn('Servidor /api/projects no disponible temporalmente, usando caché local:', err);
-    }
-
-    // Fallback a localStorage si el servidor no responde o está vacío
-    if (typeof window !== 'undefined') {
-      const savedProjects = localStorage.getItem('app_projects_list');
-      if (savedProjects) {
-        try {
-          const parsed = JSON.parse(savedProjects);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setProjects(parsed);
-          }
-        } catch (e) {
-          console.error('Error al leer app_projects_list de localStorage:', e);
-        }
-      }
+      setProjectsError(err instanceof Error ? err.message : 'No se pudieron cargar los proyectos.');
     }
   }, []);
 
@@ -119,52 +91,33 @@ export default function CarteraProyectosPage() {
     userRole.toUpperCase().includes('SUPERVISOR') ||
     userRole.toUpperCase().includes('JEFE');
 
-  const saveProjectsList = (updatedProjects: MockProject[]) => {
-    setProjects(updatedProjects);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('app_projects_list', JSON.stringify(updatedProjects));
+  const showNotification = (message: string) => {
+    setUploadNotification(message);
+    setTimeout(() => setUploadNotification(null), 4000);
+  };
+
+  // Registrar proyecto: se guarda en la base de datos y solo entonces aparece en la cartera
+  const handleAddNewProject = async (newProj: MockProject): Promise<boolean> => {
+    try {
+      const saved = await saveProject(newProj);
+      await syncProjectsFromServer();
+      showNotification(`¡Proyecto "${saved.nombre}" (CUI ${saved.cui}) registrado en la base de datos!`);
+      return true;
+    } catch (err) {
+      alert(`❌ ${err instanceof Error ? err.message : 'No se pudo registrar el proyecto.'}`);
+      return false;
     }
   };
 
-  const handleAddNewProject = async (newProj: MockProject) => {
-    const updated = [newProj, ...projects];
-    saveProjectsList(updated);
-    setUploadNotification(`¡Proyecto "${newProj.nombre}" registrado exitosamente en la Cartera Regional!`);
-    setTimeout(() => setUploadNotification(null), 4000);
-
-    // Guardar inmediatamente en la base de datos del servidor
+  const handleUpdateProject = async (updatedProj: MockProject): Promise<boolean> => {
     try {
-      const res = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newProj),
-      });
-      if (res.ok) {
-        await syncProjectsFromServer();
-      }
-    } catch (apiErr) {
-      console.warn('Error al persistir proyecto en el servidor en segundo plano:', apiErr);
-    }
-  };
-
-  const handleUpdateProject = async (updatedProj: MockProject) => {
-    const updatedList = projects.map((p) => (p.id === updatedProj.id ? updatedProj : p));
-    saveProjectsList(updatedList);
-    setUploadNotification(`¡Proyecto CUI ${updatedProj.cui} actualizado correctamente!`);
-    setTimeout(() => setUploadNotification(null), 4000);
-
-    // Actualizar inmediatamente en la base de datos del servidor
-    try {
-      const res = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedProj),
-      });
-      if (res.ok) {
-        await syncProjectsFromServer();
-      }
-    } catch (apiErr) {
-      console.warn('Error al actualizar proyecto en el servidor en segundo plano:', apiErr);
+      const saved = await saveProject(updatedProj);
+      await syncProjectsFromServer();
+      showNotification(`¡Proyecto CUI ${saved.cui} actualizado en la base de datos!`);
+      return true;
+    } catch (err) {
+      alert(`❌ ${err instanceof Error ? err.message : 'No se pudo actualizar el proyecto.'}`);
+      return false;
     }
   };
 
@@ -266,26 +219,22 @@ export default function CarteraProyectosPage() {
       return;
     }
 
-    const updated = [...parsedPreview, ...projects];
-    saveProjectsList(updated);
-    setIsBulkUploadModalOpen(false);
-    setSelectedFile(null);
-    const toUpload = [...parsedPreview];
-    setParsedPreview([]);
-    setUploadNotification(`¡Se cargaron exitosamente ${toUpload.length} proyectos a la Cartera y se están sincronizando con la base de datos!`);
-    setTimeout(() => setUploadNotification(null), 4500);
-
     try {
-      const res = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projects: toUpload }),
-      });
-      if (res.ok) {
-        await syncProjectsFromServer();
+      const { saved, errors } = await saveProjectsBulk(parsedPreview);
+      await syncProjectsFromServer();
+      setIsBulkUploadModalOpen(false);
+      setSelectedFile(null);
+      setParsedPreview([]);
+      if (errors.length > 0) {
+        alert(
+          `Se guardaron ${saved.length} de ${saved.length + errors.length} proyectos.\n\nNo se guardaron:\n` +
+            errors.map((e) => `• CUI ${e.cui}: ${e.error}`).join('\n')
+        );
+      } else {
+        showNotification(`¡Se guardaron ${saved.length} proyectos en la base de datos!`);
       }
     } catch (err) {
-      console.warn('Error al guardar proyectos masivos en servidor:', err);
+      alert(`❌ ${err instanceof Error ? err.message : 'No se pudo realizar la carga masiva.'}`);
     }
   };
 
@@ -306,7 +255,7 @@ export default function CarteraProyectosPage() {
   };
 
   // Archivar Proyecto directamente desde el Grid de la Cartera (Supervisión)
-  const handleDirectArchiveProject = (p: MockProject) => {
+  const handleDirectArchiveProject = async (p: MockProject) => {
     if (p.estado !== 'CONCLUIDO') {
       if (!confirm(`⚠️ Requisito de Archivo (Supervisión):\n\nPara archivar el proyecto CUI ${p.cui} (${p.nombre}) y su Cuaderno Digital, la obra debe estar en estado 'CONCLUIDO'.\n\n¿Desea cambiar el estado del proyecto a 'CONCLUIDO' y proceder a archivarlo en la sección de Archivos de Cuadernos?`)) {
         return;
@@ -320,23 +269,21 @@ export default function CarteraProyectosPage() {
     const userNameStr = typeof window !== 'undefined' ? (localStorage.getItem('user_name') || 'Ing. Supervisor') : 'Supervisor';
     const userRoleStr = typeof window !== 'undefined' ? (localStorage.getItem('user_role') || 'SUPERVISOR') : 'SUPERVISOR';
 
-    const updated = projects.map((item) => {
-      if (item.id === p.id) {
-        return {
-          ...item,
-          estado: 'CONCLUIDO' as const,
-          archivado: true,
-          fase: 'Liquidación / Archivo',
-          estadoObra: 'Obra Concluida / Cuaderno Digital Archivado',
-          fechaArchivado: new Date().toLocaleString(),
-          archivadoPor: `${userNameStr} (${userRoleStr})`,
-        };
-      }
-      return item;
-    });
-
-    saveProjectsList(updated);
-    alert(`✅ Proyecto CUI ${p.cui} archivado correctamente. Ahora se visualiza en la sección 'Archivos de Cuadernos'.`);
+    try {
+      await saveProject({
+        ...p,
+        estado: 'CONCLUIDO',
+        archivado: true,
+        fase: 'Liquidación / Archivo',
+        estadoObra: 'Obra Concluida / Cuaderno Digital Archivado',
+        fechaArchivado: new Date().toLocaleString('es-PE'),
+        archivadoPor: `${userNameStr} (${userRoleStr})`,
+      });
+      await syncProjectsFromServer();
+      alert(`✅ Proyecto CUI ${p.cui} archivado correctamente. Ahora se visualiza en la sección 'Archivos de Cuadernos'.`);
+    } catch (err) {
+      alert(`❌ ${err instanceof Error ? err.message : 'No se pudo archivar el proyecto.'}`);
+    }
   };
 
   // Filtrado de proyectos de la Cartera (Excluir estrictamente proyectos archivados)
@@ -471,6 +418,12 @@ export default function CarteraProyectosPage() {
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
 
             {/* Notification Banner */}
+            {projectsError && (
+              <div className="p-3 bg-[#FFDAD6] border border-[#BA1A1A]/40 text-[#93000A] text-xs font-semibold rounded-lg flex items-center justify-between gap-3">
+                <span>⚠️ {projectsError}</span>
+                <button onClick={() => syncProjectsFromServer()} className="underline shrink-0">Reintentar</button>
+              </div>
+            )}
             {uploadNotification && (
               <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-lg text-xs font-bold flex items-center justify-between shadow-sm animate-in fade-in">
                 <div className="flex items-center space-x-2">
@@ -801,15 +754,7 @@ export default function CarteraProyectosPage() {
           setIsNewProjectModalOpen(false);
           setEditingProject(null);
         }}
-        onSaveProject={(savedProj) => {
-          if (editingProject) {
-            handleUpdateProject(savedProj);
-          } else {
-            handleAddNewProject(savedProj);
-          }
-          setIsNewProjectModalOpen(false);
-          setEditingProject(null);
-        }}
+        onSaveProject={(savedProj) => (editingProject ? handleUpdateProject(savedProj) : handleAddNewProject(savedProj))}
       />
 
       {/* Modal de Carga Masiva desde Excel / CSV */}

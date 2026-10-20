@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { INITIAL_PROJECTS, MockIncidenceEntry, MockProject } from '@/lib/mockData';
 import { useIncidences, saveIncidence, uploadAttachments } from '@/lib/useIncidences';
+import { fetchProjects, saveProject } from '@/lib/projectsApi';
 import UserManagementModal from '@/components/UserManagementModal';
 import DatabaseBackupModal from '@/components/DatabaseBackupModal';
 import IncidenceTypesModal from '@/components/IncidenceTypesModal';
@@ -231,30 +232,15 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
     userRole.toUpperCase().includes('SUPERVISOR') ||
     userRole.toUpperCase().includes('JEFE');
 
-  const handleUpdateProject = async (updatedProj: MockProject) => {
-    setCurrentProject(updatedProj);
-    if (typeof window !== 'undefined') {
-      const savedProjects = localStorage.getItem('app_projects_list');
-      let list = INITIAL_PROJECTS;
-      if (savedProjects) {
-        try {
-          const parsed = JSON.parse(savedProjects);
-          if (Array.isArray(parsed) && parsed.length > 0) list = parsed;
-        } catch (e) { console.error(e); }
-      }
-      const updatedList = list.map((p) => (p.id === updatedProj.id ? updatedProj : p));
-      localStorage.setItem('app_projects_list', JSON.stringify(updatedList));
-      setAllProjects(updatedList);
-    }
-
+  const handleUpdateProject = async (updatedProj: MockProject): Promise<boolean> => {
     try {
-      await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedProj),
-      });
+      const saved = await saveProject(updatedProj);
+      setCurrentProject(saved);
+      setAllProjects(await fetchProjects());
+      return true;
     } catch (err) {
-      console.warn('Error al sincronizar actualización de proyecto con el servidor:', err);
+      alert(`❌ ${err instanceof Error ? err.message : 'No se pudo actualizar el proyecto.'}`);
+      return false;
     }
   };
 
@@ -1166,10 +1152,7 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
         isOpen={Boolean(editingProject)}
         onClose={() => setEditingProject(null)}
         projectToEdit={editingProject}
-        onSaveProject={(updatedProj) => {
-          handleUpdateProject(updatedProj);
-          setEditingProject(null);
-        }}
+        onSaveProject={handleUpdateProject}
       />
 
       {/* Visor de Adjuntos y Lightbox */}
