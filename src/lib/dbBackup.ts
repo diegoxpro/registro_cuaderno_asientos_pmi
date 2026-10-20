@@ -2,8 +2,6 @@ import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 import JSZip from 'jszip';
-import { INITIAL_REGISTERED_USERS } from '@/lib/users';
-import { INITIAL_PROJECTS, INITIAL_INCIDENCES } from '@/lib/mockData';
 
 const prisma = new PrismaClient();
 
@@ -94,7 +92,6 @@ export async function generateSqlDump(clientSnapshot?: {
   let assignmentsData: any[] = [];
   let entriesData: any[] = [];
   let attachmentsData: any[] = [];
-  let isDbFallback = false;
 
   // 1. Intentar consultar base de datos Prisma
   try {
@@ -104,24 +101,10 @@ export async function generateSqlDump(clientSnapshot?: {
     entriesData = await prisma.incidenceEntry.findMany();
     attachmentsData = await prisma.attachment.findMany();
   } catch (dbErr: any) {
-    console.warn('Prisma DB no disponible o credenciales inválidas. Utilizando fallback local:', dbErr.message);
-    isDbFallback = true;
-
-    // Fallback a snapshot enviado por el cliente o datos de memoria
-    usersData = clientSnapshot?.users && clientSnapshot.users.length > 0 ? clientSnapshot.users : INITIAL_REGISTERED_USERS;
-    projectsData = clientSnapshot?.projects && clientSnapshot.projects.length > 0 ? clientSnapshot.projects : INITIAL_PROJECTS;
-    if (clientSnapshot?.incidences && Array.isArray(clientSnapshot.incidences) && clientSnapshot.incidences.length > 0) {
-      entriesData = clientSnapshot.incidences;
-    } else {
-      entriesData = Object.values(INITIAL_INCIDENCES).flat();
-    }
-    assignmentsData = clientSnapshot?.assignments || [];
-    attachmentsData = [];
+    // Sin base de datos no hay respaldo: nunca se genera uno con datos del navegador o de ejemplo
+    throw new Error(`No se pudo leer la base de datos PostgreSQL para generar el respaldo: ${dbErr?.message || dbErr}`);
   }
 
-  if (isDbFallback) {
-    sql += `-- NOTA: Backup generado en modo resiliencia (almacenamiento local / snapshot)\n\n`;
-  }
 
   // 1. Usuarios
   sql += `-- --------------------------------------------------------\n`;
@@ -199,7 +182,9 @@ export async function generateSqlDump(clientSnapshot?: {
   for (const e of entriesData) {
     const cols = [
       'id', 'numeroCorrelativo', 'proyectoId', 'tipoIncidencia', 'titulo', 'contenido', 'fechaHora',
-      'autorNombre', 'autorCargo', 'autorCIP', 'esRespuestaDeId', 'estadoGestion', 'plazoDiasRespuesta', 'createdAt', 'updatedAt'
+      'autorNombre', 'autorCargo', 'autorCIP', 'esRespuestaDeId', 'estadoGestion', 'plazoDiasRespuesta',
+      'solicitudEdicionPendiente', 'motivoSolicitudEdicion', 'solicitanteEdicionNombre', 'edicionPermitida',
+      'editado', 'fechaUltimaEdicion', 'createdAt', 'updatedAt'
     ];
     const numCorrelativo = typeof e.numeroCorrelativo === 'number' ? e.numeroCorrelativo : Number(e.numeroCorrelativo || e.numeroAsiento || 1);
     const vals = [
@@ -216,6 +201,12 @@ export async function generateSqlDump(clientSnapshot?: {
       escapeSqlValue(e.esRespuestaDeId || null),
       escapeSqlValue(e.estadoGestion || e.estado || 'Asiento Informativo (Sin acción requerida)'),
       escapeSqlValue(e.plazoDiasRespuesta || null),
+      escapeSqlValue(Boolean(e.solicitudEdicionPendiente)),
+      escapeSqlValue(e.motivoSolicitudEdicion || null),
+      escapeSqlValue(e.solicitanteEdicionNombre || null),
+      escapeSqlValue(Boolean(e.edicionPermitida)),
+      escapeSqlValue(Boolean(e.editado)),
+      escapeSqlValue(e.fechaUltimaEdicion ? new Date(e.fechaUltimaEdicion) : null),
       escapeSqlValue(e.createdAt ? new Date(e.createdAt) : now),
       escapeSqlValue(e.updatedAt ? new Date(e.updatedAt) : now),
     ];

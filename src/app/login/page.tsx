@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { AppUser } from '@/lib/users';
 import { getSmtpConfig } from '@/lib/smtp';
+import { purgeLegacyIncidenceCache } from '@/lib/useIncidences';
 
 // Datos del usuario que devuelve el servidor (sin contraseña)
 type SessionUser = Omit<AppUser, 'contrasena'>;
@@ -279,6 +280,9 @@ export default function LoginPage() {
       localStorage.setItem('user_id', user.id);
       localStorage.setItem('user_account', user.usuario);
       localStorage.setItem('user_2fa_verified', 'true');
+
+      // Los asientos viven solo en la base de datos: descartar copias antiguas del navegador
+      purgeLegacyIncidenceCache();
 
       // 🧹 LIMPIAR NOTIFICACIONES INEXISTENTES AL INICIAR SESIÓN
       const savedProjectsStr = localStorage.getItem('app_projects_list');

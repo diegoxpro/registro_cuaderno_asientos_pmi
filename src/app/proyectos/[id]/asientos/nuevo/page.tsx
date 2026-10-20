@@ -20,7 +20,8 @@ import {
   AlertTriangle,
   FileWarning
 } from 'lucide-react';
-import { INITIAL_PROJECTS, INITIAL_INCIDENCES, MockIncidenceEntry, MockProject } from '@/lib/mockData';
+import { INITIAL_PROJECTS, MockProject } from '@/lib/mockData';
+import { useIncidences, saveIncidence } from '@/lib/useIncidences';
 import Sidebar from '@/components/Sidebar';
 import { getStoredIncidenceTypes } from '@/components/IncidenceTypesModal';
 import { saveAttachment, makeIdbUrl } from '@/lib/attachmentStorage';
@@ -57,8 +58,8 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
 
   const [project, setProject] = useState<MockProject>(EMPTY_PROJECT);
 
-  // Estado con la lista completa de incidencias (locales + estáticas)
-  const [allIncidences, setAllIncidences] = useState<MockIncidenceEntry[]>([]);
+  // Asientos existentes del proyecto, leídos de la base de datos (para correlativo y respuestas)
+  const { incidences: allIncidences } = useIncidences(project.id || id);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -76,75 +77,22 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
         }
       }
 
-      // 2. Buscar el proyecto por id o cui, o último seleccionado, o el primer proyecto disponible
-      const lastSelectedId = localStorage.getItem('last_selected_project_id');
-      const foundProject =
-        baseProjects.find((p) => p.id === id || p.cui === id) ||
-        (lastSelectedId ? baseProjects.find((p) => p.id === lastSelectedId || p.cui === lastSelectedId) : undefined) ||
-        baseProjects[0] ||
-        EMPTY_PROJECT;
+      // 2. Mostrar el proyecto de la URL (por id o CUI) mientras se confirma con el servidor
+      const cachedProject = baseProjects.find((p) => p.id === id || p.cui === id);
+      if (cachedProject) setProject(cachedProject);
 
-      setProject(foundProject);
-
-      const activeProjId = foundProject.id || id || 'p-2704014';
-      if (activeProjId) {
-        localStorage.setItem('last_selected_project_id', activeProjId);
-      }
-
-      // Sincronizar proyecto desde la API directamente
-      fetch('/api/projects')
+      // El proyecto debe existir en el servidor y ser accesible para el usuario
+      fetch('/api/projects', { cache: 'no-store' })
         .then((res) => res.json())
         .then((data) => {
-          if (data.success && Array.isArray(data.projects) && data.projects.length > 0) {
-            const p = data.projects.find((x: any) => x.id === id || x.cui === id) || data.projects[0];
+          if (data.success && Array.isArray(data.projects)) {
+            const p = data.projects.find((x: MockProject) => x.id === id || x.cui === id);
             if (p) {
               setProject(p);
+              localStorage.setItem('last_selected_project_id', p.id);
+            } else {
+              setProject(EMPTY_PROJECT);
             }
-          }
-        })
-        .catch(() => {});
-
-      // 3. Cargar incidencias existentes y recuperar huérfanas
-      const storageKey = `custom_incidences_${activeProjId}`;
-      let savedList: MockIncidenceEntry[] = [];
-      const savedStr = localStorage.getItem(storageKey);
-      if (savedStr) {
-        try {
-          const parsed = JSON.parse(savedStr);
-          if (Array.isArray(parsed)) savedList = parsed;
-        } catch (e) {
-          console.error(e);
-        }
-      }
-
-      // Rescatar asientos huérfanos que hayan podido guardarse bajo custom_incidences_ o custom_incidences_undefined
-      const orphanStr = localStorage.getItem('custom_incidences_') || localStorage.getItem('custom_incidences_undefined');
-      if (orphanStr && activeProjId) {
-        try {
-          const orphans = JSON.parse(orphanStr);
-          if (Array.isArray(orphans) && orphans.length > 0) {
-            const seenIds = new Set(savedList.map((x) => x.id));
-            const toAdd = orphans.filter((x) => !seenIds.has(x.id));
-            if (toAdd.length > 0) {
-              savedList = [...toAdd, ...savedList];
-              localStorage.setItem(storageKey, JSON.stringify(savedList));
-            }
-            localStorage.removeItem('custom_incidences_');
-            localStorage.removeItem('custom_incidences_undefined');
-          }
-        } catch (e) {}
-      }
-
-      const initialList = INITIAL_INCIDENCES[activeProjId] || INITIAL_INCIDENCES['p-2704014'] || [];
-      setAllIncidences([...savedList, ...initialList]);
-
-      // Consultar lista actualizada de asientos del servidor para correlativos precisos
-      fetch(`/api/incidences?projectId=${activeProjId}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.success && Array.isArray(data.incidences) && data.incidences.length > 0) {
-            setAllIncidences(data.incidences);
-            localStorage.setItem(storageKey, JSON.stringify(data.incidences));
           }
         })
         .catch(() => {});
@@ -265,20 +213,21 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
     const now = new Date();
     const formattedDate = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
-    const targetProjectId = project.id || id || (typeof window !== 'undefined' ? localStorage.getItem('last_selected_project_id') : '') || 'p-2704014';
+    const targetProjectId = project.id;
+    if (!targetProjectId) {
+      alert('❌ No se encontró el proyecto en la base de datos o no tiene acceso a él. No se puede registrar el asiento.');
+      setLoading(false);
+      return;
+    }
 
     const storedRole = (typeof window !== 'undefined' ? localStorage.getItem('user_role') : null) || 'Supervisor de Obra';
     const storedName = (typeof window !== 'undefined' ? localStorage.getItem('user_name') : null) || 'Ing. Responsable de Obra';
     const storedCip = (typeof window !== 'undefined' ? localStorage.getItem('user_cip') : null) || 'CIP-701234';
 
     // Construcción de la nueva incidencia registrada con persistencia directa en PostgreSQL
+    // Sin id ni correlativo: el servidor los asigna al guardar en la base de datos
     const newIncidence = {
-      id: `inc-${project.cui || '2704014'}-${String(siguienteCorrelativo).padStart(4, '0')}`,
       proyectoId: targetProjectId,
-      projectId: targetProjectId,
-      cui: project.cui || '2704014',
-      numeroCorrelativo: siguienteCorrelativo,
-      numeroCorrelativoFormatted: displayNumeroCorrelativo,
       tipoIncidencia: tipoIncidencia,
       titulo: titulo,
       contenido: contenido,
@@ -286,9 +235,7 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
       autorNombre: storedName,
       autorCargo: storedRole,
       autorCIP: storedCip,
-      firmadoDigitalmente: true,
       esRespuestaDeId: esRespuesta && asientoRespondidoId ? asientoRespondidoId : null,
-      respuestas: [],
       estadoGestion: esRespuesta ? 'Atendido / Respuesta Registrada' : 'Asiento Informativo (Sin acción requerida)',
       plazoDiasRespuesta: tipoIncidencia === 'CONSULTA_TECNICA' ? 10 : undefined,
       adjuntos: adjuntos.map((att: any) => ({
@@ -300,51 +247,13 @@ export default function NuevoAsientoPage({ params }: { params: Promise<{ id: str
     };
 
     try {
-      // 🔔 GUARDADO DIRECTO E INMEDIATO EN LA BASE DE DATOS POSTGRESQL
-      const response = await fetch('/api/incidences', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newIncidence),
-      });
-
-      const resData = await response.json();
-
-      if (!response.ok || !resData.success) {
-        throw new Error(resData.error || 'Error al guardar el asiento en la base de datos.');
-      }
-
-      const savedIncidence = resData.incidence || newIncidence;
-      const finalCorrelativo = savedIncidence.numeroCorrelativo || siguienteCorrelativo;
+      // Guardado directo en PostgreSQL: si falla, no se registra nada
+      const savedIncidence = await saveIncidence(newIncidence);
+      const finalCorrelativo = savedIncidence.numeroCorrelativo;
       const finalDisplayCorrelativo = String(finalCorrelativo).padStart(4, '0');
 
-      // Actualizar caché de respaldo en localStorage
       if (typeof window !== 'undefined') {
-        const storageKey = `custom_incidences_${targetProjectId}`;
-        const existingStr = localStorage.getItem(storageKey);
-        const existingList = existingStr ? JSON.parse(existingStr) : [];
-        try {
-          localStorage.setItem(storageKey, JSON.stringify([savedIncidence, ...existingList.filter((x: any) => x.id !== savedIncidence.id)]));
-        } catch (e) {}
-
-        // Actualizar contador de asientos en app_projects_list
-        const savedProjects = localStorage.getItem('app_projects_list');
-        if (savedProjects) {
-          try {
-            const parsed = JSON.parse(savedProjects);
-            if (Array.isArray(parsed)) {
-              const updated = parsed.map((p: MockProject) => {
-                if (p.id === targetProjectId || p.cui === project.cui) {
-                  return { ...p, asientosCount: (p.asientosCount || 0) + 1 };
-                }
-                return p;
-              });
-              localStorage.setItem('app_projects_list', JSON.stringify(updated));
-            }
-          } catch (e) {}
-        }
-        if (targetProjectId) {
-          localStorage.setItem('last_selected_project_id', targetProjectId);
-        }
+        localStorage.setItem('last_selected_project_id', targetProjectId);
 
         // Notificación automática
         const notificationItem = {

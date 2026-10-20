@@ -27,7 +27,8 @@ import NotificationsDropdown from '@/components/NotificationsDropdown';
 import UserManagementModal from '@/components/UserManagementModal';
 import IncidenceTypesModal from '@/components/IncidenceTypesModal';
 import DatabaseBackupModal from '@/components/DatabaseBackupModal';
-import { INITIAL_PROJECTS, INITIAL_INCIDENCES, MockProject, MockIncidenceEntry } from '@/lib/mockData';
+import { INITIAL_PROJECTS, MockProject, MockIncidenceEntry } from '@/lib/mockData';
+import { fetchIncidences } from '@/lib/useIncidences';
 
 export default function ReportePorAsientoPage() {
   const router = useRouter();
@@ -92,70 +93,36 @@ export default function ReportePorAsientoPage() {
     const projId = activeProj ? activeProj.id : selectedProjectId;
     const projCui = activeProj ? activeProj.cui : selectedProjectId;
 
-    let projectIncidences: MockIncidenceEntry[] = [];
-    if (typeof window !== 'undefined') {
-      const storageKey1 = `custom_incidences_${projId}`;
-      const storageKey2 = `custom_incidences_${projCui}`;
-      const storageKey3 = `custom_incidences_p-${projCui}`;
-
-      const savedStr = localStorage.getItem(storageKey1) || localStorage.getItem(storageKey2) || localStorage.getItem(storageKey3);
-      let list = INITIAL_INCIDENCES[projId] || INITIAL_INCIDENCES[projCui] || INITIAL_INCIDENCES[`p-${projCui}`] || [];
-      if (savedStr) {
-        try {
-          const custom = JSON.parse(savedStr);
-          if (Array.isArray(custom) && custom.length > 0) {
-            list = [...custom, ...list];
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      }
-      projectIncidences = list;
-    } else {
-      projectIncidences = INITIAL_INCIDENCES[projId] || INITIAL_INCIDENCES[projCui] || INITIAL_INCIDENCES[`p-${projCui}`] || [];
-    }
-
-    // Si aún no hay incidencias y es el proyecto de Museo Tumbas Reales CUI 2704014
-    if (projectIncidences.length === 0 && (projCui === '2704014' || projId === 'p-2704014' || projId === '2704014')) {
-      projectIncidences = INITIAL_INCIDENCES['p-2704014'] || INITIAL_INCIDENCES['2704014'] || [];
-    }
-
-    // Ordenar por correlativo ascendente
-    projectIncidences.sort((a, b) => a.numeroCorrelativo - b.numeroCorrelativo);
-    setAvailableIncidences(projectIncidences);
-
-    if (projectIncidences.length > 0) {
-      const firstInc = projectIncidences[0];
-      setSelectedIncidenceId(firstInc.id);
-
-      // Deducir Actor y Nombre según el autor del asiento
-      deduceActorInfo(firstInc, activeProj);
-
-      // Generar vista inicial
-      setGeneratedProject(activeProj || null);
-      setGeneratedIncidence(firstInc);
-      setIsGenerated(true);
-    } else {
-      setSelectedIncidenceId('');
-      setGeneratedIncidence(null);
-      setIsGenerated(false);
-    }
-
-    // Consultar asientos autoritativos desde la API del servidor
-    fetch(`/api/incidences?projectId=${projId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && Array.isArray(data.incidences) && data.incidences.length > 0) {
-          data.incidences.sort((a: any, b: any) => a.numeroCorrelativo - b.numeroCorrelativo);
-          setAvailableIncidences(data.incidences);
-          setSelectedIncidenceId(data.incidences[0].id);
-          deduceActorInfo(data.incidences[0], activeProj);
+    // Asientos del proyecto leídos directamente de la base de datos
+    let cancelled = false;
+    fetchIncidences(projId)
+      .then((list) => {
+        if (cancelled) return;
+        list.sort((a, b) => a.numeroCorrelativo - b.numeroCorrelativo);
+        setAvailableIncidences(list);
+        if (list.length > 0) {
+          setSelectedIncidenceId(list[0].id);
+          deduceActorInfo(list[0], activeProj);
           setGeneratedProject(activeProj || null);
-          setGeneratedIncidence(data.incidences[0]);
+          setGeneratedIncidence(list[0]);
           setIsGenerated(true);
+        } else {
+          setSelectedIncidenceId('');
+          setGeneratedIncidence(null);
+          setIsGenerated(false);
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Error al obtener asientos:', err);
+        setAvailableIncidences([]);
+        setSelectedIncidenceId('');
+        setGeneratedIncidence(null);
+        setIsGenerated(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedProjectId, projects]);
 
   // Manejar cambio de Asiento en el selector

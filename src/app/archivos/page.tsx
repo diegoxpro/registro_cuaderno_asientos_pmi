@@ -34,7 +34,8 @@ import NotificationsDropdown from '@/components/NotificationsDropdown';
 import UserManagementModal from '@/components/UserManagementModal';
 import IncidenceTypesModal from '@/components/IncidenceTypesModal';
 import DatabaseBackupModal from '@/components/DatabaseBackupModal';
-import { INITIAL_PROJECTS, INITIAL_INCIDENCES, MockProject, MockIncidenceEntry } from '@/lib/mockData';
+import { INITIAL_PROJECTS, MockProject, MockIncidenceEntry } from '@/lib/mockData';
+import { fetchIncidences } from '@/lib/useIncidences';
 
 export default function ArchivedNotebooksPage() {
   const [projects, setProjects] = useState<MockProject[]>([]);
@@ -105,26 +106,16 @@ export default function ArchivedNotebooksPage() {
   });
 
   // Abrir vista completa del cuaderno digital archivado
-  const handleOpenArchivedNotebook = (proj: MockProject) => {
+  const handleOpenArchivedNotebook = async (proj: MockProject) => {
     setSelectedProjectForView(proj);
     setSeatSearchQuery('');
+    setArchivedIncidences([]);
 
-    if (typeof window !== 'undefined') {
-      const storageKey = `custom_incidences_${proj.id}`;
-      const savedStr = localStorage.getItem(storageKey);
-      const initialList = INITIAL_INCIDENCES[proj.id] || [];
-      if (savedStr) {
-        try {
-          const customList = JSON.parse(savedStr);
-          setArchivedIncidences([...customList, ...initialList]);
-          return;
-        } catch (e) {
-          console.error(e);
-        }
-      }
-      setArchivedIncidences(initialList);
-    } else {
-      setArchivedIncidences(INITIAL_INCIDENCES[proj.id] || []);
+    // Asientos del cuaderno leídos directamente de la base de datos
+    try {
+      setArchivedIncidences(await fetchIncidences(proj.id));
+    } catch (err) {
+      alert(`❌ ${err instanceof Error ? err.message : 'No se pudieron obtener los asientos.'}`);
     }
   };
 

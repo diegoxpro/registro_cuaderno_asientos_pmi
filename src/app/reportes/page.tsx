@@ -35,7 +35,8 @@ import NotificationsDropdown from '@/components/NotificationsDropdown';
 import UserManagementModal from '@/components/UserManagementModal';
 import IncidenceTypesModal from '@/components/IncidenceTypesModal';
 import DatabaseBackupModal from '@/components/DatabaseBackupModal';
-import { INITIAL_PROJECTS, INITIAL_INCIDENCES, MockProject, MockIncidenceEntry } from '@/lib/mockData';
+import { INITIAL_PROJECTS, MockProject, MockIncidenceEntry } from '@/lib/mockData';
+import { fetchIncidences } from '@/lib/useIncidences';
 
 const EMPTY_PROJECT: MockProject = {
   id: '',
@@ -107,40 +108,17 @@ export default function ReportsPage() {
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || projects[0] || EMPTY_PROJECT;
 
-  useEffect(() => {
-    if (selectedProject?.id) {
-      fetch(`/api/incidences?projectId=${selectedProject.id}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.success && Array.isArray(data.incidences) && data.incidences.length > 0) {
-            localStorage.setItem(`custom_incidences_${selectedProject.id}`, JSON.stringify(data.incidences));
-          }
-        })
-        .catch(() => {});
-    }
-  }, [selectedProject?.id]);
-
   // Generar Reporte Oficial
-  const handleGenerateReport = () => {
-    if (!selectedProject) return;
+  const handleGenerateReport = async () => {
+    if (!selectedProject?.id) return;
 
-    // Obtener asientos del proyecto desde localStorage o INITIAL_INCIDENCES
+    // Asientos del proyecto leídos directamente de la base de datos
     let projectIncidences: MockIncidenceEntry[] = [];
-    if (typeof window !== 'undefined') {
-      const storageKey = `custom_incidences_${selectedProject.id}`;
-      const savedStr = localStorage.getItem(storageKey);
-      let list = INITIAL_INCIDENCES[selectedProject.id] || [];
-      if (savedStr) {
-        try {
-          const custom = JSON.parse(savedStr);
-          if (Array.isArray(custom) && custom.length > 0) list = custom;
-        } catch (e) {
-          console.error(e);
-        }
-      }
-      projectIncidences = list;
-    } else {
-      projectIncidences = INITIAL_INCIDENCES[selectedProject.id] || [];
+    try {
+      projectIncidences = await fetchIncidences(selectedProject.id);
+    } catch (err) {
+      alert(`❌ ${err instanceof Error ? err.message : 'No se pudieron obtener los asientos.'}`);
+      return;
     }
 
     // Filtrar asientos por fecha, tipo y estado

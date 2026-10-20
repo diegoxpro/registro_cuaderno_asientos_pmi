@@ -118,7 +118,15 @@ model IncidenceEntry {
 
   estadoGestion      String           @default("Asiento Informativo (Sin acción requerida)")
   plazoDiasRespuesta Int?
-  
+
+  // Flujo de solicitud/autorización de edición del asiento
+  solicitudEdicionPendiente Boolean   @default(false)
+  motivoSolicitudEdicion    String?   @db.Text
+  solicitanteEdicionNombre  String?
+  edicionPermitida          Boolean   @default(false)
+  editado                   Boolean   @default(false)
+  fechaUltimaEdicion        DateTime?
+
   adjuntos           Attachment[]
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt

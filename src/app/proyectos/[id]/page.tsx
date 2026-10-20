@@ -42,7 +42,8 @@ import {
   Tags,
   Database
 } from 'lucide-react';
-import { INITIAL_PROJECTS, INITIAL_INCIDENCES, MockIncidenceEntry, MockProject } from '@/lib/mockData';
+import { INITIAL_PROJECTS, MockIncidenceEntry, MockProject } from '@/lib/mockData';
+import { useIncidences, saveIncidence } from '@/lib/useIncidences';
 import UserManagementModal from '@/components/UserManagementModal';
 import DatabaseBackupModal from '@/components/DatabaseBackupModal';
 import IncidenceTypesModal from '@/components/IncidenceTypesModal';
@@ -80,9 +81,9 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
     return INITIAL_PROJECTS.find((p) => p.id === id || p.cui === id) || INITIAL_PROJECTS[0] || EMPTY_PROJECT;
   });
 
-  const initialIncidencesList = (currentProject && INITIAL_INCIDENCES[currentProject.id]) || [];
-
-  const [incidences, setIncidences] = useState<MockIncidenceEntry[]>(initialIncidencesList);
+  // Asientos leídos de PostgreSQL vía API (se refrescan solos; sin copias en el navegador)
+  const { incidences, setIncidences, loading: incidencesLoading, error: incidencesError, reload: reloadIncidences } =
+    useIncidences(currentProject?.id || id);
   const [filterTipo, setFilterTipo] = useState('TODOS');
   const [filterAutor, setFilterAutor] = useState('TODOS');
   const [selectedIncidenceModal, setSelectedIncidenceModal] = useState<MockIncidenceEntry | null>(null);
@@ -187,98 +188,6 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
         localStorage.setItem('last_selected_project_id', activeProj.id);
       }
 
-      // Cargar los asientos registrados para este proyecto (autoridad 100% Base de Datos PostgreSQL)
-      const activeProjId = activeProj ? activeProj.id : id;
-      const storageKey = `custom_incidences_${activeProjId}`;
-
-      // 1. Mostrar temporalmente para renderizado visual inmediato
-      const seedList = INITIAL_INCIDENCES[activeProjId] || INITIAL_INCIDENCES['p-2704014'] || INITIAL_INCIDENCES['2704014'] || [];
-      const savedStr = localStorage.getItem(storageKey);
-      let localList: MockIncidenceEntry[] = [];
-      if (savedStr) {
-        try {
-          const parsed = JSON.parse(savedStr);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            localList = parsed;
-          }
-        } catch (e) {}
-      }
-
-      if (localList.length > 0) {
-        setIncidences(localList);
-      } else if (seedList.length > 0) {
-        setIncidences(seedList);
-      }
-
-      // 2. Consultar a la Base de Datos PostgreSQL y rescatar asientos locales no sincronizados
-      fetch(`/api/incidences?projectId=${activeProjId}`)
-        .then((res) => res.json())
-        .then(async (data) => {
-          const dbIncidences: MockIncidenceEntry[] = (data.success && Array.isArray(data.incidences)) ? data.incidences : [];
-          const dbTitles = new Set(dbIncidences.map((x) => (x.titulo || '').trim().toLowerCase()));
-          const dbIds = new Set(dbIncidences.map((x) => x.id));
-
-          // Claves potenciales donde podrían haber quedado asientos locales atrapados
-          const possibleStorageKeys = [
-            storageKey,
-            `custom_incidences_${activeProj?.cui || ''}`,
-            'custom_incidences_p-2704014',
-            'custom_incidences_2704014',
-            'custom_incidences_',
-            'custom_incidences_undefined',
-          ];
-
-          const unsyncedLocals: MockIncidenceEntry[] = [];
-          for (const k of possibleStorageKeys) {
-            if (!k) continue;
-            const str = localStorage.getItem(k);
-            if (!str) continue;
-            try {
-              const arr = JSON.parse(str);
-              if (Array.isArray(arr)) {
-                for (const item of arr) {
-                  const itemTitle = (item?.titulo || '').trim().toLowerCase();
-                  if (item && item.titulo && !dbIds.has(item.id) && !dbTitles.has(itemTitle)) {
-                    unsyncedLocals.push(item);
-                    dbIds.add(item.id);
-                    dbTitles.add(itemTitle);
-                  }
-                }
-              }
-            } catch {}
-          }
-
-          // 🔔 RESCATE AUTOMÁTICO: guardar cualquier asiento huérfano directamente en la base de datos PostgreSQL
-          if (unsyncedLocals.length > 0) {
-            console.log(`Detectados ${unsyncedLocals.length} asientos locales no sincronizados. Guardando inmediatamente en la base de datos...`);
-            for (const unsaved of unsyncedLocals) {
-              try {
-                const res = await fetch('/api/incidences', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    ...unsaved,
-                    proyectoId: activeProjId,
-                    projectId: activeProjId,
-                    cui: activeProj?.cui || '2704014',
-                  }),
-                });
-                const resJson = await res.json();
-                if (resJson.success && resJson.incidence) {
-                  dbIncidences.push(resJson.incidence);
-                }
-              } catch (e) {
-                console.error('Error al rescatar asiento hacia la base de datos:', e);
-              }
-            }
-          }
-
-          // Ordenar por correlativo y establecer en estado
-          dbIncidences.sort((a, b) => a.numeroCorrelativo - b.numeroCorrelativo);
-          setIncidences(dbIncidences);
-          localStorage.setItem(storageKey, JSON.stringify(dbIncidences));
-        })
-        .catch((err) => console.warn('Error al consultar /api/incidences:', err));
     }
   }, [id]);
 
@@ -427,28 +336,29 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
     }
   };
 
-  // Solicitar permiso de edición al Supervisor
-  const handleRequestEditSubmit = (incidenceId: string, motivo: string) => {
-    const updatedList = incidences.map((inc) => {
-      if (inc.id === incidenceId) {
-        return {
-          ...inc,
-          solicitudEdicionPendiente: true,
-          motivoSolicitudEdicion: motivo,
-          solicitanteEdicionNombre: `${userRole} — GORE Lambayeque`,
-        };
-      }
-      return inc;
-    });
+  // Guarda cambios de un asiento en la base de datos y recarga la lista desde el servidor
+  const persistIncidenceChange = async (incidenceId: string, changes: Partial<MockIncidenceEntry>): Promise<boolean> => {
+    try {
+      await saveIncidence({ id: incidenceId, ...changes });
+      await reloadIncidences();
+      return true;
+    } catch (err) {
+      alert(`❌ ${err instanceof Error ? err.message : 'No se pudo guardar el cambio en la base de datos.'}`);
+      await reloadIncidences();
+      return false;
+    }
+  };
 
-    setIncidences(updatedList);
+  // Solicitar permiso de edición al Supervisor
+  const handleRequestEditSubmit = async (incidenceId: string, motivo: string) => {
+    const ok = await persistIncidenceChange(incidenceId, {
+      solicitudEdicionPendiente: true,
+      motivoSolicitudEdicion: motivo,
+      solicitanteEdicionNombre: `${userRole} — GORE Lambayeque`,
+    });
+    if (!ok) return;
 
     if (typeof window !== 'undefined') {
-      const storageKey = `custom_incidences_${currentProject.id}`;
-      const initialIds = (INITIAL_INCIDENCES[currentProject.id] || []).map((i) => i.id);
-      const customOnly = updatedList.filter((i) => !initialIds.includes(i.id));
-      localStorage.setItem(storageKey, JSON.stringify(customOnly));
-
       const targetInc = incidences.find((i) => i.id === incidenceId);
       const numDisplay = targetInc ? getNumeroCorrelativoDisplay(targetInc) : '0000';
 
@@ -479,26 +389,11 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
   };
 
   // Aprobar Edición (Opción 1 del Supervisor: PERMITIR EDICIÓN)
-  const handleApproveEditRequest = (inc: MockIncidenceEntry) => {
-    const updatedList = incidences.map((i) => {
-      if (i.id === inc.id) {
-        return {
-          ...i,
-          solicitudEdicionPendiente: false,
-          edicionPermitida: true,
-        };
-      }
-      return i;
-    });
-
-    setIncidences(updatedList);
+  const handleApproveEditRequest = async (inc: MockIncidenceEntry) => {
+    const ok = await persistIncidenceChange(inc.id, { solicitudEdicionPendiente: false, edicionPermitida: true });
+    if (!ok) return;
 
     if (typeof window !== 'undefined') {
-      const storageKey = `custom_incidences_${currentProject.id}`;
-      const initialIds = (INITIAL_INCIDENCES[currentProject.id] || []).map((i) => i.id);
-      const customOnly = updatedList.filter((i) => !initialIds.includes(i.id));
-      localStorage.setItem(storageKey, JSON.stringify(customOnly));
-
       const numDisplay = getNumeroCorrelativoDisplay(inc);
       const notifKey = 'app_notifications_list';
       const savedNotifsStr = localStorage.getItem(notifKey);
@@ -527,26 +422,11 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
   };
 
   // Rechazar Edición (Opción 2 del Supervisor: NO PERMITIR / RECHAZAR)
-  const handleRejectEditRequest = (inc: MockIncidenceEntry) => {
-    const updatedList = incidences.map((i) => {
-      if (i.id === inc.id) {
-        return {
-          ...i,
-          solicitudEdicionPendiente: false,
-          edicionPermitida: false,
-        };
-      }
-      return i;
-    });
-
-    setIncidences(updatedList);
+  const handleRejectEditRequest = async (inc: MockIncidenceEntry) => {
+    const ok = await persistIncidenceChange(inc.id, { solicitudEdicionPendiente: false, edicionPermitida: false });
+    if (!ok) return;
 
     if (typeof window !== 'undefined') {
-      const storageKey = `custom_incidences_${currentProject.id}`;
-      const initialIds = (INITIAL_INCIDENCES[currentProject.id] || []).map((i) => i.id);
-      const customOnly = updatedList.filter((i) => !initialIds.includes(i.id));
-      localStorage.setItem(storageKey, JSON.stringify(customOnly));
-
       const numDisplay = getNumeroCorrelativoDisplay(inc);
       const notifKey = 'app_notifications_list';
       const savedNotifsStr = localStorage.getItem(notifKey);
@@ -575,26 +455,14 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
   };
 
   // Guardar Cambios tras Editar Asiento Autorizado
-  const handleSaveEditedSeat = (updatedSeat: MockIncidenceEntry) => {
-    const updatedList = incidences.map((i) => (i.id === updatedSeat.id ? updatedSeat : i));
-    setIncidences(updatedList);
-
-    if (typeof window !== 'undefined') {
-      const storageKey = `custom_incidences_${currentProject.id}`;
-      localStorage.setItem(storageKey, JSON.stringify(updatedList));
-
-      // Sincronizar actualización con el servidor y PostgreSQL
-      fetch('/api/incidences', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...updatedSeat,
-          proyectoId: updatedSeat.proyectoId || currentProject.id || id,
-          projectId: currentProject.id || id,
-          cui: currentProject.cui,
-        }),
-      }).catch((err) => console.warn('Error al sincronizar edición con API:', err));
-    }
+  const handleSaveEditedSeat = async (updatedSeat: MockIncidenceEntry) => {
+    const ok = await persistIncidenceChange(updatedSeat.id, {
+      ...updatedSeat,
+      editado: true,
+      // Una vez usada, la autorización de edición se consume
+      edicionPermitida: false,
+    });
+    if (!ok) return;
 
     alert(`✅ El Asiento N° ${getNumeroCorrelativoDisplay(updatedSeat)} fue actualizado y guardado correctamente.`);
   };
@@ -946,6 +814,12 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
               onScroll={handleScrollParallax}
               className="max-h-[680px] overflow-y-auto pr-2 space-y-6 scroll-smooth relative rounded-xl border border-gray-200 p-3 bg-[#F9F9F9]/60 backdrop-blur-sm shadow-inner"
             >
+              {incidencesError && (
+                <div className="bg-[#FFDAD6] border border-[#BA1A1A]/40 text-[#93000A] text-xs font-semibold p-3 rounded-lg flex items-center justify-between gap-3">
+                  <span>⚠️ {incidencesError}</span>
+                  <button onClick={reloadIncidences} className="underline shrink-0">Reintentar</button>
+                </div>
+              )}
               {displayedRootIncidences.map((rootInc) => {
                 const childIncidences = getChildIncidences(rootInc.id, rootInc.numeroCorrelativo);
 
@@ -1178,10 +1052,14 @@ export default function ProyectoDetailPage({ params }: { params: Promise<{ id: s
                 </div>
               ) : null}
 
-              {rootIncidences.length === 0 && (
+              {rootIncidences.length === 0 && !incidencesError && (
                 <div className="bg-white p-8 text-center rounded-lg border border-dashed border-gray-300 space-y-2">
                   <p className="text-xs font-semibold text-gray-500">
-                    No se encontraron asientos que coincidan con los filtros seleccionados.
+                    {incidencesLoading
+                      ? 'Cargando asientos desde la base de datos…'
+                      : incidences.length === 0
+                        ? 'Este cuaderno aún no tiene asientos registrados.'
+                        : 'No se encontraron asientos que coincidan con los filtros seleccionados.'}
                   </p>
                 </div>
               )}

@@ -30,7 +30,8 @@ import {
   Tags,
   Database
 } from 'lucide-react';
-import { INITIAL_PROJECTS, INITIAL_INCIDENCES, MockProject, MockIncidenceEntry } from '@/lib/mockData';
+import { INITIAL_PROJECTS, MockProject, MockIncidenceEntry } from '@/lib/mockData';
+import { saveIncidence } from '@/lib/useIncidences';
 import UserManagementModal from '@/components/UserManagementModal';
 import IncidenceTypesModal from '@/components/IncidenceTypesModal';
 import DatabaseBackupModal from '@/components/DatabaseBackupModal';
@@ -119,35 +120,16 @@ export default function DashboardPage() {
     userRole.toUpperCase().includes('JEFE');
 
   // Aprobar Solicitud de Edición desde el Grid del Dashboard
-  const handleApproveEditInDashboard = (n: NotificationItem) => {
+  const handleApproveEditInDashboard = async (n: NotificationItem) => {
+    // 1. Registrar la autorización en la base de datos
+    try {
+      await saveIncidence({ id: n.asientoId, solicitudEdicionPendiente: false, edicionPermitida: true });
+    } catch (err) {
+      alert(`❌ ${err instanceof Error ? err.message : 'No se pudo registrar la autorización.'}`);
+      return;
+    }
+
     if (typeof window !== 'undefined') {
-      // 1. Actualizar el asiento en custom_incidences_PROYECTOID
-      const storageKey = `custom_incidences_${n.proyectoId}`;
-      const savedStr = localStorage.getItem(storageKey);
-      let list = INITIAL_INCIDENCES[n.proyectoId] || [];
-      if (savedStr) {
-        try {
-          const custom = JSON.parse(savedStr);
-          if (Array.isArray(custom)) list = [...custom, ...list];
-        } catch (e) { }
-      }
-
-      const updatedList = list.map((inc: any) => {
-        if (inc.id === n.asientoId || inc.numeroCorrelativo?.toString() === n.numeroCorrelativo) {
-          return {
-            ...inc,
-            solicitudEdicionPendiente: false,
-            edicionPermitida: true,
-          };
-        }
-        return inc;
-      });
-
-      // Guardar custom list actualizada
-      const initialIds = (INITIAL_INCIDENCES[n.proyectoId] || []).map((i) => i.id);
-      const customOnly = updatedList.filter((i) => !initialIds.includes(i.id));
-      localStorage.setItem(storageKey, JSON.stringify(customOnly));
-
       // 2. Actualizar notificación en app_notifications_list
       const notifKey = 'app_notifications_list';
       const savedNotifStr = localStorage.getItem(notifKey);
@@ -193,33 +175,15 @@ export default function DashboardPage() {
   };
 
   // Rechazar Solicitud de Edición desde el Grid del Dashboard
-  const handleRejectEditInDashboard = (n: NotificationItem) => {
+  const handleRejectEditInDashboard = async (n: NotificationItem) => {
+    try {
+      await saveIncidence({ id: n.asientoId, solicitudEdicionPendiente: false, edicionPermitida: false });
+    } catch (err) {
+      alert(`❌ ${err instanceof Error ? err.message : 'No se pudo registrar el rechazo.'}`);
+      return;
+    }
+
     if (typeof window !== 'undefined') {
-      const storageKey = `custom_incidences_${n.proyectoId}`;
-      const savedStr = localStorage.getItem(storageKey);
-      let list = INITIAL_INCIDENCES[n.proyectoId] || [];
-      if (savedStr) {
-        try {
-          const custom = JSON.parse(savedStr);
-          if (Array.isArray(custom)) list = [...custom, ...list];
-        } catch (e) { }
-      }
-
-      const updatedList = list.map((inc: any) => {
-        if (inc.id === n.asientoId || inc.numeroCorrelativo?.toString() === n.numeroCorrelativo) {
-          return {
-            ...inc,
-            solicitudEdicionPendiente: false,
-            edicionPermitida: false,
-          };
-        }
-        return inc;
-      });
-
-      const initialIds = (INITIAL_INCIDENCES[n.proyectoId] || []).map((i) => i.id);
-      const customOnly = updatedList.filter((i) => !initialIds.includes(i.id));
-      localStorage.setItem(storageKey, JSON.stringify(customOnly));
-
       const notifKey = 'app_notifications_list';
       const savedNotifStr = localStorage.getItem(notifKey);
       const currentNotifs: NotificationItem[] = savedNotifStr ? JSON.parse(savedNotifStr) : notifications;
