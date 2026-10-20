@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerUsers, saveServerUser, toPublicUser } from '@/lib/serverUserStorage';
+import { getServerUsers, saveServerUser, toPublicUser, UserValidationError } from '@/lib/serverUserStorage';
 
 // GET /api/users - Retorna la lista consolidada de usuarios registrados
 export async function GET() {
@@ -38,8 +38,9 @@ export async function POST(req: Request) {
       apellidos,
       dni,
       cip,
-      email: email || `${String(usuario || dni).toLowerCase()}@regionlambayeque.gob.pe`,
-      telefono: telefono || '',
+      // Sin valores inventados: lo que no se envía conserva su valor actual
+      email,
+      telefono,
       modContrato,
       usuario: usuario || dni,
       contrasena,
@@ -54,9 +55,12 @@ export async function POST(req: Request) {
       user: toPublicUser(savedUser),
     });
   } catch (error: any) {
+    if (error instanceof UserValidationError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
     console.error('Error al guardar usuario en /api/users:', error);
     return NextResponse.json(
-      { success: false, error: error?.message || 'Error al guardar usuario en el servidor' },
+      { success: false, error: 'Error de base de datos: el usuario NO se guardó. Intente nuevamente.' },
       { status: 500 }
     );
   }

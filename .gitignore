@@ -42,3 +42,5 @@ Thumbs.db
 
 # Adjuntos subidos por los usuarios (se guardan en el servidor, no en git)
 /uploads/
+/.next-nuevo/
+/.next-anterior/

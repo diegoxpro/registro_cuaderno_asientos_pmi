@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getRequestSession } from '@/lib/session';
+import { requireSession } from '@/lib/serverSession';
 import { getAccessibleProjectKeys, normKey } from '@/lib/projectAccess';
 import {
   ALLOWED_EXTENSIONS,
@@ -19,8 +19,9 @@ const json = (body: unknown, status = 200) => NextResponse.json(body, { status, 
 export async function POST(req: Request) {
   const writtenPaths: string[] = [];
   try {
-    const session = getRequestSession(req);
-    const allowed = await getAccessibleProjectKeys(req);
+    // Esta ruta está excluida del middleware (subidas grandes): verifica la sesión aquí mismo
+    const session = await requireSession(req);
+    const allowed = session ? await getAccessibleProjectKeys(req, session) : null;
     if (!session || !allowed) return json({ success: false, error: 'Sesión no válida.' }, 401);
 
     // Rechazar envíos demasiado grandes antes de leerlos

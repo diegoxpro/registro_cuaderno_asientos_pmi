@@ -10,7 +10,8 @@
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:seed": "tsx prisma/seed.ts",
-    "passwords:hash": "tsx scripts/hash-passwords.ts"
+    "passwords:hash": "tsx scripts/hash-passwords.ts",
+    "users:migrate": "tsx scripts/migrate-users-to-db.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

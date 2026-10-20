@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Permite compilar en otra carpeta mientras la app sigue en servicio (ver scripts/deploy.sh)
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   async headers() {
     return [
       {
@@ -14,8 +16,8 @@ const nextConfig: NextConfig = {
     ];
   },
   experimental: {
-    // El middleware de sesión ve el cuerpo de cada petición; por defecto lo corta a 10 MB.
-    // Debe superar el máximo por subida de adjuntos (ver src/lib/attachmentRules.ts).
+    // Límite del cuerpo que ve el middleware de sesión (por defecto 10 MB). La subida de adjuntos
+    // (/api/attachments) está excluida del middleware y verifica la sesión en la propia ruta.
     middlewareClientMaxBodySize: "110mb",
   },
 };

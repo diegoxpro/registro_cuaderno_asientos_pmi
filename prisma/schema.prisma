@@ -45,6 +45,7 @@ model User {
   usuario      String                  @unique
   contrasena   String
   perfilAcceso Role                    @default(RESIDENTE)
+  otpEnabled   Boolean                 @default(false)
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
   asignaciones UserProjectAssignment[]
