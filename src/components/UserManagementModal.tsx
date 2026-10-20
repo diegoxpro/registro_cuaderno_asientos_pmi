@@ -25,7 +25,7 @@ import {
   Info
 } from 'lucide-react';
 import SmtpConfigModal from '@/components/SmtpConfigModal';
-import { SmtpConfig, getSmtpConfig, isSmtpConfigured } from '@/lib/smtp';
+import { PublicSmtpConfig, EMPTY_PUBLIC_SMTP_CONFIG, fetchSmtpConfig, isSmtpConfigured } from '@/lib/smtp';
 
 export interface UserRecord {
   id: string;
@@ -85,7 +85,8 @@ export default function UserManagementModal({ isOpen, onClose }: Props) {
   
   // SMTP & Notification State
   const [isSmtpModalOpen, setIsSmtpModalOpen] = useState(false);
-  const [smtpConfig, setSmtpConfig] = useState<SmtpConfig>(() => getSmtpConfig());
+  // Configuración SMTP general del sistema (leída del servidor, sin contraseña)
+  const [smtpConfig, setSmtpConfig] = useState<PublicSmtpConfig>(EMPTY_PUBLIC_SMTP_CONFIG);
   const [sendEmailOnSave, setSendEmailOnSave] = useState(true);
   const [sendingEmailForId, setSendingEmailForId] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
@@ -188,9 +189,12 @@ function parseUserRecordRole(rol?: unknown, rolDisplay?: unknown): UserRecord['r
 
   React.useEffect(() => {
     if (isOpen) {
-      const config = getSmtpConfig();
-      setSmtpConfig(config);
-      setSendEmailOnSave(config.autoSendOnRegister);
+      fetchSmtpConfig()
+        .then((config) => {
+          setSmtpConfig(config);
+          setSendEmailOnSave(config.autoSendOnRegister);
+        })
+        .catch((err) => console.warn('No se pudo leer la configuración SMTP:', err));
       syncUsersFromServer();
     }
   }, [isOpen, syncUsersFromServer]);
@@ -229,7 +233,6 @@ function parseUserRecordRole(rol?: unknown, rolDisplay?: unknown): UserRecord['r
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          config: smtpConfig,
           user: userRecord,
         }),
       });
@@ -270,7 +273,6 @@ function parseUserRecordRole(rol?: unknown, rolDisplay?: unknown): UserRecord['r
           email: userRecord.email,
           nombre: userRecord.nombre,
           apellidos: userRecord.apellidos,
-          config: smtpConfig,
         }),
       });
 

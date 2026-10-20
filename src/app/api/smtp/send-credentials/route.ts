@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import nodemailer from 'nodemailer';
 import { generateUserCredentialsEmailHtml } from '@/lib/smtp';
+import { createTransport, fromAddress, getSmtpSettings, isConfigComplete } from '@/lib/smtpSettings';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { config, user, systemUrl } = body;
+    const { user, systemUrl } = body;
 
     if (!user || !user.email) {
       return NextResponse.json(
@@ -14,26 +14,15 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!config || !config.host || !config.user) {
+    // Siempre la configuración SMTP general guardada en el servidor
+    const config = await getSmtpSettings();
+    if (!isConfigComplete(config)) {
       return NextResponse.json(
-        { success: false, error: 'Configuración SMTP no encontrada o incompleta.' },
+        { success: false, error: 'El servidor SMTP del sistema no está configurado. Configúrelo en Administración de Usuarios.' },
         { status: 400 }
       );
     }
-
-    // Configurar transporte nodemailer
-    const transporter = nodemailer.createTransport({
-      host: config.host,
-      port: Number(config.port) || 587,
-      secure: Boolean(config.secure),
-      auth: {
-        user: config.user,
-        pass: config.pass,
-      },
-      tls: {
-        rejectUnauthorized: false,
-      },
-    });
+    const transporter = createTransport(config);
 
     const htmlContent = generateUserCredentialsEmailHtml({
       nombre: user.nombre,
@@ -47,7 +36,7 @@ export async function POST(request: Request) {
     });
 
     const mailOptions = {
-      from: `"${config.fromName || 'GORE Lambayeque - Registro de Asientos'}" <${config.fromEmail || config.user}>`,
+      from: fromAddress(config, 'GORE Lambayeque - Registro de Asientos'),
       to: user.email,
       subject: `Credenciales de Acceso - Sistema Cuaderno Digital GORE Lambayeque`,
       html: htmlContent,

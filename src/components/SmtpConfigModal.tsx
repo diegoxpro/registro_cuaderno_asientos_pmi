@@ -16,12 +16,20 @@ import {
   Lock,
   UserCheck
 } from 'lucide-react';
-import { SmtpConfig, getSmtpConfig, saveSmtpConfig, DEFAULT_SMTP_CONFIG } from '@/lib/smtp';
+import {
+  SmtpConfig,
+  PublicSmtpConfig,
+  DEFAULT_SMTP_CONFIG,
+  fetchSmtpConfig,
+  saveSmtpConfigToServer,
+  readLegacyLocalSmtpConfig,
+  clearLegacyLocalSmtpConfig,
+} from '@/lib/smtp';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onConfigSaved?: (config: SmtpConfig) => void;
+  onConfigSaved?: (config: PublicSmtpConfig) => void;
 }
 
 export default function SmtpConfigModal({ isOpen, onClose, onConfigSaved }: Props) {
@@ -30,15 +38,41 @@ export default function SmtpConfigModal({ isOpen, onClose, onConfigSaved }: Prop
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingConfig, setIsLoadingConfig] = useState(false);
+  // La contraseña nunca viaja al navegador: solo se sabe si hay una guardada
+  const [hasStoredPassword, setHasStoredPassword] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<string | null>(null);
+  const [migrationNotice, setMigrationNotice] = useState(false);
 
   useEffect(() => {
-    if (isOpen) {
-      const loaded = getSmtpConfig();
-      setConfig(loaded);
-      setTestRecipient(loaded.fromEmail || loaded.user || '');
-      setTestResult(null);
-      setSaveStatus(null);
-    }
+    if (!isOpen) return;
+    setTestResult(null);
+    setSaveStatus(null);
+    setSaveError(null);
+    setMigrationNotice(false);
+    setIsLoadingConfig(true);
+
+    fetchSmtpConfig()
+      .then((server) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { hasPassword, configured, updatedAt, updatedBy, ...fields } = server;
+        const legacy = readLegacyLocalSmtpConfig();
+        if (!configured && legacy) {
+          // Migración: precargar la configuración que este navegador tenía guardada
+          setConfig(legacy);
+          setMigrationNotice(true);
+        } else {
+          setConfig({ ...fields, pass: '' });
+        }
+        setHasStoredPassword(hasPassword);
+        setLastUpdate(updatedAt ? `${new Date(updatedAt).toLocaleString('es-PE')}${updatedBy ? ` por ${updatedBy}` : ''}` : null);
+        const source = !configured && legacy ? legacy : fields;
+        setTestRecipient(source.fromEmail || source.user || '');
+      })
+      .catch((err) => setSaveError(err instanceof Error ? err.message : 'No se pudo cargar la configuración SMTP.'))
+      .finally(() => setIsLoadingConfig(false));
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -73,20 +107,33 @@ export default function SmtpConfigModal({ isOpen, onClose, onConfigSaved }: Prop
     }
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    saveSmtpConfig(config);
-    setSaveStatus('¡Configuración SMTP guardada correctamente!');
-    if (onConfigSaved) {
-      onConfigSaved(config);
+    if (!config.pass && !hasStoredPassword) {
+      setSaveError('Ingrese la contraseña del servidor SMTP.');
+      return;
     }
-    setTimeout(() => {
-      setSaveStatus(null);
-    }, 3000);
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      const saved = await saveSmtpConfigToServer(config);
+      clearLegacyLocalSmtpConfig();
+      setMigrationNotice(false);
+      setHasStoredPassword(saved.hasPassword);
+      setConfig((prev) => ({ ...prev, pass: '' }));
+      setLastUpdate(saved.updatedAt ? `${new Date(saved.updatedAt).toLocaleString('es-PE')}${saved.updatedBy ? ` por ${saved.updatedBy}` : ''}` : null);
+      setSaveStatus('Configuración SMTP guardada para todo el sistema.');
+      onConfigSaved?.(saved);
+      setTimeout(() => setSaveStatus(null), 3000);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'No se pudo guardar la configuración SMTP.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleTestConnection = async () => {
-    if (!config.host || !config.user || !config.pass) {
+    if (!config.host || !config.user || (!config.pass && !hasStoredPassword)) {
       setTestResult({
         success: false,
         message: 'Por favor complete el Host, Usuario y Contraseña antes de probar.',
@@ -145,7 +192,7 @@ export default function SmtpConfigModal({ isOpen, onClose, onConfigSaved }: Prop
                 Configuración de Servidor SMTP
               </h2>
               <p className="text-xs text-red-100 font-sans">
-                Parámetros para despacho automático de credenciales por correo
+                Configuración general del sistema · solo el administrador puede modificarla
               </p>
             </div>
           </div>
@@ -161,6 +208,20 @@ export default function SmtpConfigModal({ isOpen, onClose, onConfigSaved }: Prop
         {/* Modal Body */}
         <form onSubmit={handleSave} className="p-6 space-y-5 flex-1 overflow-y-auto text-xs">
           
+          {isLoadingConfig && (
+            <div className="p-3 bg-gray-50 border border-gray-200 rounded text-gray-600 font-semibold">Cargando configuración del servidor…</div>
+          )}
+          {migrationNotice && (
+            <div className="p-3 bg-amber-50 border border-amber-300 rounded text-amber-900 font-semibold">
+              Se cargó la configuración que estaba guardada solo en este navegador. Pulse <strong>Guardar</strong> para aplicarla a todo el sistema (después se borrará de este navegador).
+            </div>
+          )}
+          {!migrationNotice && lastUpdate && (
+            <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded text-emerald-900">
+              Configuración general vigente · última modificación: {lastUpdate}
+            </div>
+          )}
+
           {/* Quick Presets */}
           <div className="bg-[#F9F9F9] p-3.5 rounded-lg border border-[#E2E2E2] space-y-2">
             <div className="flex items-center justify-between">
@@ -264,8 +325,9 @@ export default function SmtpConfigModal({ isOpen, onClose, onConfigSaved }: Prop
               </label>
               <input
                 type="password"
-                required
-                placeholder="••••••••••••••••"
+                required={!hasStoredPassword}
+                autoComplete="new-password"
+                placeholder={hasStoredPassword ? 'Guardada · dejar vacío para conservarla' : '••••••••••••••••'}
                 value={config.pass}
                 onChange={(e) => setConfig({ ...config, pass: e.target.value })}
                 className="w-full px-3 py-2 bg-white border border-[#8F706C]/40 rounded font-mono focus:ring-2 focus:ring-[#91000A]"
@@ -383,6 +445,10 @@ export default function SmtpConfigModal({ isOpen, onClose, onConfigSaved }: Prop
             </div>
           )}
 
+          {saveError && (
+            <div className="p-3 bg-[#FFDAD6] text-[#93000A] border border-[#BA1A1A]/40 rounded font-semibold text-center">⚠️ {saveError}</div>
+          )}
+
           {/* Form Actions */}
           <div className="flex justify-end space-x-2 pt-3 border-t border-[#E2E2E2]">
             <button
@@ -394,10 +460,11 @@ export default function SmtpConfigModal({ isOpen, onClose, onConfigSaved }: Prop
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-[#91000A] text-white font-bold rounded hover:bg-[#B71C1C] shadow flex items-center space-x-1.5"
+              disabled={isSaving || isLoadingConfig}
+              className="px-5 py-2 bg-[#91000A] text-white font-bold rounded hover:bg-[#B71C1C] shadow flex items-center space-x-1.5 disabled:opacity-60"
             >
               <ShieldCheck className="w-4 h-4" />
-              <span>Guardar Configuración SMTP</span>
+              <span>{isSaving ? 'Guardando…' : 'Guardar Configuración SMTP'}</span>
             </button>
           </div>
         </form>

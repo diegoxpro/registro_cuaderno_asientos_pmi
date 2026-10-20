@@ -20,42 +20,64 @@ export const DEFAULT_SMTP_CONFIG: SmtpConfig = {
   autoSendOnRegister: true,
 };
 
-export const LOCAL_STORAGE_SMTP_KEY = 'app_smtp_config';
+/** Configuración SMTP tal como la ve el navegador: sin contraseña. */
+export type PublicSmtpConfig = Omit<SmtpConfig, 'pass'> & {
+  hasPassword: boolean;
+  configured: boolean;
+  updatedAt?: string;
+  updatedBy?: string;
+};
 
-export function getSmtpConfig(): SmtpConfig {
-  if (typeof window === 'undefined') {
-    return DEFAULT_SMTP_CONFIG;
-  }
+export const EMPTY_PUBLIC_SMTP_CONFIG: PublicSmtpConfig = (() => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { pass, ...rest } = DEFAULT_SMTP_CONFIG;
+  return { ...rest, hasPassword: false, configured: false };
+})();
+
+/** Lee la configuración SMTP general del servidor (solo administrador). */
+export async function fetchSmtpConfig(): Promise<PublicSmtpConfig> {
+  const res = await fetch('/api/smtp/config', { cache: 'no-store' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo obtener la configuración SMTP.');
+  return data.config;
+}
+
+/** Guarda la configuración SMTP general. Contraseña vacía = conservar la actual. */
+export async function saveSmtpConfigToServer(config: SmtpConfig): Promise<PublicSmtpConfig> {
+  const res = await fetch('/api/smtp/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar la configuración SMTP.');
+  return data.config;
+}
+
+// Versiones anteriores guardaban la configuración (con contraseña) en el navegador.
+const LEGACY_LOCAL_STORAGE_SMTP_KEY = 'app_smtp_config';
+
+/** Configuración antigua de este navegador, para migrarla al servidor. */
+export function readLegacyLocalSmtpConfig(): SmtpConfig | null {
   try {
-    const saved = localStorage.getItem(LOCAL_STORAGE_SMTP_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return {
-        ...DEFAULT_SMTP_CONFIG,
-        ...parsed,
-        port: Number(parsed.port) || 587,
-        secure: Boolean(parsed.secure),
-        autoSendOnRegister: parsed.autoSendOnRegister !== undefined ? Boolean(parsed.autoSendOnRegister) : true,
-      };
-    }
-  } catch (e) {
-    console.error('Error al leer configuración SMTP de localStorage:', e);
-  }
-  return DEFAULT_SMTP_CONFIG;
-}
-
-export function saveSmtpConfig(config: SmtpConfig): void {
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(LOCAL_STORAGE_SMTP_KEY, JSON.stringify(config));
-    } catch (e) {
-      console.error('Error al guardar configuración SMTP en localStorage:', e);
-    }
+    const saved = localStorage.getItem(LEGACY_LOCAL_STORAGE_SMTP_KEY);
+    if (!saved) return null;
+    const parsed = JSON.parse(saved);
+    if (!parsed?.host || !parsed?.user) return null;
+    return { ...DEFAULT_SMTP_CONFIG, ...parsed, port: Number(parsed.port) || 587, secure: Boolean(parsed.secure) };
+  } catch {
+    return null;
   }
 }
 
-export function isSmtpConfigured(config: SmtpConfig): boolean {
-  return Boolean(config.host && config.user && config.fromEmail);
+export function clearLegacyLocalSmtpConfig(): void {
+  try {
+    localStorage.removeItem(LEGACY_LOCAL_STORAGE_SMTP_KEY);
+  } catch {}
+}
+
+export function isSmtpConfigured(config: Pick<PublicSmtpConfig, 'configured'>): boolean {
+  return Boolean(config.configured);
 }
 
 export function generateUserCredentialsEmailHtml(params: {

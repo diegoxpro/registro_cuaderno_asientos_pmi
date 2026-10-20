@@ -18,7 +18,6 @@ import {
   Sparkles
 } from 'lucide-react';
 import { AppUser } from '@/lib/users';
-import { getSmtpConfig } from '@/lib/smtp';
 import { purgeLegacyIncidenceCache } from '@/lib/useIncidences';
 
 // Datos del usuario que devuelve el servidor (sin contraseña)
@@ -140,7 +139,7 @@ export default function LoginPage() {
     fetch('/api/auth/otp/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ config: getSmtpConfig() }),
+      body: JSON.stringify({}),
     })
       .then((res) => res.json())
       .then((data) => {
@@ -148,6 +147,7 @@ export default function LoginPage() {
           if (data.email) setOtpSentEmail(data.email);
           // Solo llega en modo desarrollo (botón "Autocompletar")
           if (data.code) setGeneratedOtpCode(data.code);
+          if (!data.emailSent && data.emailErrorMessage && !data.code) setErrorMessage(data.emailErrorMessage);
         } else if (data.expired) {
           backToCredentials(data.error);
         } else {
@@ -283,6 +283,9 @@ export default function LoginPage() {
 
       // Los asientos viven solo en la base de datos: descartar copias antiguas del navegador
       purgeLegacyIncidenceCache();
+      // La configuración SMTP es general y vive en el servidor; ya no se guarda en el navegador
+      // (excepto en el del administrador, hasta que la migre desde "Configuración SMTP")
+      if (user.rol !== 'ADMINISTRADOR') localStorage.removeItem('app_smtp_config');
 
       // 🧹 LIMPIAR NOTIFICACIONES INEXISTENTES AL INICIAR SESIÓN
       const savedProjectsStr = localStorage.getItem('app_projects_list');

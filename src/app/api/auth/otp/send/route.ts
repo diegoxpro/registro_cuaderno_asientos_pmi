@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import nodemailer from 'nodemailer';
 import { createOtpSession } from '@/lib/otp';
 import { generateOtpEmailHtml } from '@/lib/smtp';
+import { createTransport, fromAddress, getSmtpSettings, isConfigComplete } from '@/lib/smtpSettings';
 import { cookies } from 'next/headers';
 import { findServerUser } from '@/lib/serverUserStorage';
 import { SESSION_COOKIE, PENDING_2FA_COOKIE, verifyPending2faToken, verifySessionToken } from '@/lib/session';
@@ -9,7 +9,6 @@ import { SESSION_COOKIE, PENDING_2FA_COOKIE, verifyPending2faToken, verifySessio
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { config } = body;
 
     // Solo se genera OTP para (a) el usuario que acaba de validar su contraseña o
     // (b) un administrador que envía un código de prueba a otra cuenta.
@@ -51,46 +50,28 @@ export async function POST(request: Request) {
     let emailSent = false;
     let emailErrorMessage = '';
 
-    // Si nos pasan configuración SMTP activa, intentar despacho por correo
-    if (config && config.host && config.user && config.pass) {
+    // Despacho con la configuración SMTP general del sistema (nunca la del navegador)
+    const config = await getSmtpSettings();
+    if (isConfigComplete(config)) {
       try {
-        const transporter = nodemailer.createTransport({
-          host: config.host,
-          port: Number(config.port) || 587,
-          secure: Boolean(config.secure),
-          auth: {
-            user: config.user,
-            pass: config.pass,
-          },
-          connectionTimeout: 3000,
-          greetingTimeout: 3000,
-          socketTimeout: 3000,
-        });
-
-        const htmlBody = generateOtpEmailHtml({
-          nombre: targetNombre,
-          apellidos: targetApellidos,
-          otpCode: otpRecord.code,
-          expiresMinutes: 5,
-        });
-
-        // Ejecutar envío en segundo plano (Non-blocking async dispatch)
-        transporter.sendMail({
-          from: `"${config.fromName || 'GORE Lambayeque - 2FA'}" <${config.fromEmail || config.user}>`,
+        await createTransport(config).sendMail({
+          from: fromAddress(config, 'GORE Lambayeque - 2FA'),
           to: targetEmail,
           subject: `🔑 Código OTP de Verificación 2FA [${otpRecord.code}] — GORE Lambayeque`,
-          html: htmlBody,
-        }).then(() => {
-          console.log(`[SMTP] Código OTP [${otpRecord.code}] entregado exitosamente a ${targetEmail}`);
-        }).catch((err) => {
-          console.error('[SMTP Error] Error al entregar OTP por correo:', err);
+          html: generateOtpEmailHtml({
+            nombre: targetNombre,
+            apellidos: targetApellidos,
+            otpCode: otpRecord.code,
+            expiresMinutes: 5,
+          }),
         });
-
         emailSent = true;
       } catch (err: unknown) {
-        console.error('Error al instanciar transporte SMTP:', err);
-        emailErrorMessage = err instanceof Error ? err.message : 'Fallo en servidor SMTP';
+        console.error('[SMTP Error] No se pudo entregar el código OTP por correo:', err);
+        emailErrorMessage = 'No se pudo enviar el correo con el código. Intente reenviarlo o contacte al administrador.';
       }
+    } else {
+      emailErrorMessage = 'El servidor de correo del sistema no está configurado. Contacte al administrador.';
     }
 
     return NextResponse.json({

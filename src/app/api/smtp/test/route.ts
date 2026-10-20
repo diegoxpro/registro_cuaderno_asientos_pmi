@@ -1,40 +1,30 @@
 import { NextResponse } from 'next/server';
-import nodemailer from 'nodemailer';
+import { createTransport, fromAddress, isConfigComplete, mergeWithStored } from '@/lib/smtpSettings';
 
+// POST /api/smtp/test - Prueba la configuración del formulario (o la guardada) sin guardarla.
+// Si la contraseña viene vacía se usa la guardada.
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { config, testRecipient } = body;
+    const { testRecipient } = body;
+    const config = await mergeWithStored(body.config || {});
 
-    if (!config || !config.host || !config.user) {
+    if (!isConfigComplete(config)) {
       return NextResponse.json(
-        { success: false, error: 'Configuración SMTP incompleta. Ingrese el Host, Usuario y Contraseña.' },
+        { success: false, error: 'Configuración SMTP incompleta. Ingrese el Host, Usuario, Contraseña y Correo remitente.' },
         { status: 400 }
       );
     }
 
     const recipient = (testRecipient && String(testRecipient).trim()) || config.fromEmail || config.user;
-
-    // Configurar transporte nodemailer
-    const transporter = nodemailer.createTransport({
-      host: config.host,
-      port: Number(config.port) || 587,
-      secure: Boolean(config.secure), // true para 465, false para otros
-      auth: {
-        user: config.user,
-        pass: config.pass,
-      },
-      tls: {
-        rejectUnauthorized: false, // Permite certificados autofirmados si los hay
-      },
-    });
+    const transporter = createTransport(config);
 
     // Verificación de conexión con el servidor SMTP
     await transporter.verify();
 
     // Enviar correo de prueba
     const mailOptions = {
-      from: `"${config.fromName || 'GORE Lambayeque - Notificaciones'}" <${config.fromEmail || config.user}>`,
+      from: fromAddress(config, 'GORE Lambayeque - Notificaciones'),
       to: recipient,
       subject: 'Prueba de Conexión SMTP - GORE Lambayeque',
       html: `

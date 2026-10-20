@@ -147,3 +147,11 @@ model Attachment {
   subidoPor     String?
   createdAt     DateTime       @default(now())
 }
+
+// Configuración general del sistema (clave → JSON). Ej.: "smtp".
+model SystemSetting {
+  clave          String   @id
+  valor          String   @db.Text
+  actualizadoPor String?
+  updatedAt      DateTime @updatedAt
+}
