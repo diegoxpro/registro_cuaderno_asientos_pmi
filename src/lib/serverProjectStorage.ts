@@ -100,6 +100,8 @@ function normalizeState(st?: string): 'ACTIVO' | 'PAUSADO' | 'CONCLUIDO' {
 // Obtener todos los proyectos del servidor con filtrado RBAC
 export async function getServerProjects(filters?: { userDni?: string; role?: string }): Promise<MockProject[]> {
   const projectMap = new Map<string, MockProject>();
+  // DNIs asignados a cada proyecto en la tabla UserProjectAssignment (clave: cui o id)
+  const dbAssignedDnis = new Map<string, Set<string>>();
 
   // 1. Cargar proyectos desde archivo persistente
   const fileProjects = await readProjectsFile();
@@ -180,6 +182,10 @@ export async function getServerProjects(filters?: { userDni?: string; role?: str
         };
 
         projectMap.set(mapped.cui || mapped.id, mapped);
+        dbAssignedDnis.set(
+          mapped.cui || mapped.id,
+          new Set((dp.asignaciones || []).map((a) => String(a.user?.dni || '').trim().toLowerCase()))
+        );
       }
     } catch (dbErr) {
       console.warn('Prisma DB no disponible al consultar proyectos, usando archivo persistente:', dbErr);
@@ -194,7 +200,6 @@ export async function getServerProjects(filters?: { userDni?: string; role?: str
   const cleanDni = String(filters?.userDni || '').trim().toLowerCase();
 
   const isFullAdmin =
-    !roleUpper ||
     roleUpper.includes('ADMIN') ||
     roleUpper.includes('JEFE') ||
     roleUpper === 'ADMINISTRADOR';
@@ -204,39 +209,29 @@ export async function getServerProjects(filters?: { userDni?: string; role?: str
     return allProjects;
   }
 
-  // Para usuarios con rol específico (Residente, Supervisor, etc.)
-  if (cleanDni) {
-    const fileAssignments = await readAssignmentsFile();
-    const userAssignment = fileAssignments.find(
-      (a: any) =>
-        (a.dni && String(a.dni).trim().toLowerCase() === cleanDni) ||
-        (a.userId && String(a.userId).trim().toLowerCase() === cleanDni)
-    );
+  // Para usuarios con rol específico (Residente, Supervisor, etc.): solo proyectos asignados
+  // o donde figuran como residente/supervisor. Sin coincidencias no se muestra ninguno.
+  if (!cleanDni) return [];
 
-    // Si tiene asignaciones explícitas con restricción activada
-    if (userAssignment && userAssignment.restrictVisibility && Array.isArray(userAssignment.assignedProjectIds)) {
-      const assignedIds = new Set(userAssignment.assignedProjectIds.map((id: string) => String(id).toLowerCase()));
-      return allProjects.filter((p) => {
-        const isAssigned = assignedIds.has(String(p.id).toLowerCase()) || assignedIds.has(String(p.cui).toLowerCase());
-        const isResident = p.residenteDni && String(p.residenteDni).trim().toLowerCase() === cleanDni;
-        const isSupervisor = p.supervisorDni && String(p.supervisorDni).trim().toLowerCase() === cleanDni;
-        return isAssigned || isResident || isSupervisor;
-      });
-    }
+  const fileAssignments = await readAssignmentsFile();
+  const userAssignment = fileAssignments.find(
+    (a: any) =>
+      (a.dni && String(a.dni).trim().toLowerCase() === cleanDni) ||
+      (a.userId && String(a.userId).trim().toLowerCase() === cleanDni)
+  );
+  const fileAssignedIds = new Set<string>(
+    Array.isArray(userAssignment?.assignedProjectIds)
+      ? userAssignment.assignedProjectIds.map((id: string) => String(id).toLowerCase())
+      : []
+  );
 
-    // Si no tiene asignación restrictiva, filtrar por proyectos donde figura como Residente o Supervisor
-    const filteredByRole = allProjects.filter((p) => {
-      const isResident = p.residenteDni && String(p.residenteDni).trim().toLowerCase() === cleanDni;
-      const isSupervisor = p.supervisorDni && String(p.supervisorDni).trim().toLowerCase() === cleanDni;
-      return isResident || isSupervisor;
-    });
-
-    if (filteredByRole.length > 0) {
-      return filteredByRole;
-    }
-  }
-
-  return allProjects;
+  return allProjects.filter((p) => {
+    const isFileAssigned = fileAssignedIds.has(String(p.id).toLowerCase()) || fileAssignedIds.has(String(p.cui).toLowerCase());
+    const isDbAssigned = dbAssignedDnis.get(p.cui || p.id)?.has(cleanDni) ?? false;
+    const isResident = p.residenteDni && String(p.residenteDni).trim().toLowerCase() === cleanDni;
+    const isSupervisor = p.supervisorDni && String(p.supervisorDni).trim().toLowerCase() === cleanDni;
+    return isFileAssigned || isDbAssigned || isResident || isSupervisor;
+  });
 }
 
 // Guardar o actualizar un proyecto en el servidor y en la base de datos

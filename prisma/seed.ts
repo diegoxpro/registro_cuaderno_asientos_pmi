@@ -1,4 +1,5 @@
 import { PrismaClient, Role } from '@prisma/client';
+import { hashPassword } from '../src/lib/password';
 
 const prisma = new PrismaClient();
 
@@ -26,7 +27,7 @@ async function main() {
       modContrato: 'Nombrado 276',
       perfilAcceso: Role.ADMINISTRADOR,
       cip: 'CIP-112233',
-      contrasena: 'admin123',
+      contrasena: await hashPassword('admin123'),
     },
   });
 

@@ -141,7 +141,7 @@ function parseUserRecordRole(rol?: unknown, rolDisplay?: unknown): UserRecord['r
             telefono: String(u.telefono || ''),
             modContrato: u.modContrato ? String(u.modContrato) : undefined,
             usuario: String(u.usuario || u.dni || ''),
-            contrasena: String(u.contrasena || '123456'),
+            contrasena: '', // El servidor nunca devuelve contraseñas
             rol: parseUserRecordRole(u.rol, u.rolDisplay),
             otpEnabled: u.otpEnabled !== undefined ? Boolean(u.otpEnabled) : true,
           }));
@@ -173,7 +173,7 @@ function parseUserRecordRole(rol?: unknown, rolDisplay?: unknown): UserRecord['r
               telefono: String(u.telefono || ''),
               modContrato: u.modContrato ? String(u.modContrato) : undefined,
               usuario: String(u.usuario || u.dni || ''),
-              contrasena: String(u.contrasena || '123456'),
+              contrasena: '', // El servidor nunca devuelve contraseñas
               rol: parseUserRecordRole(u.rol, u.rolDisplay),
               otpEnabled: u.otpEnabled !== undefined ? Boolean(u.otpEnabled) : true,
             }));
@@ -211,6 +211,7 @@ function parseUserRecordRole(rol?: unknown, rolDisplay?: unknown): UserRecord['r
 
         return {
           ...u,
+          contrasena: undefined,
           rol: rolEnum,
           rolDisplay: u.rol,
         };
@@ -326,7 +327,7 @@ function parseUserRecordRole(rol?: unknown, rolDisplay?: unknown): UserRecord['r
     setTelefono(u.telefono);
     setModContrato(u.modContrato || 'CAS');
     setUsuario(u.usuario);
-    setContrasena(u.contrasena);
+    setContrasena(''); // Vacío = conservar la contraseña actual
     setRol(u.rol);
     setOtpEnabled(isSmtpConfigured(smtpConfig) && u.otpEnabled !== false);
     setSendEmailOnSave(false); // Por defecto no reenviar al editar
@@ -337,6 +338,15 @@ function parseUserRecordRole(rol?: unknown, rolDisplay?: unknown): UserRecord['r
     e.preventDefault();
     if (!nombre || !apellidos || !dni || !email || !telefono) {
       alert('Por favor complete los campos obligatorios (*)');
+      return;
+    }
+
+    if (!editingUserId && contrasena.trim().length < 8) {
+      alert('Ingrese una contraseña de al menos 8 caracteres para el nuevo usuario.');
+      return;
+    }
+    if (editingUserId && contrasena && contrasena.trim().length < 8) {
+      alert('La nueva contraseña debe tener al menos 8 caracteres (deje el campo vacío para conservar la actual).');
       return;
     }
 
@@ -361,7 +371,7 @@ function parseUserRecordRole(rol?: unknown, rolDisplay?: unknown): UserRecord['r
         telefono,
         modContrato,
         usuario: usuario || dni,
-        contrasena: contrasena || '123456',
+        contrasena,
         rol,
         otpEnabled,
       };
@@ -378,7 +388,7 @@ function parseUserRecordRole(rol?: unknown, rolDisplay?: unknown): UserRecord['r
         telefono,
         modContrato,
         usuario: usuario || dni,
-        contrasena: contrasena || '123456',
+        contrasena,
         rol,
         otpEnabled,
       };
@@ -398,11 +408,17 @@ function parseUserRecordRole(rol?: unknown, rolDisplay?: unknown): UserRecord['r
           rolDisplay: savedUser.rol,
         }),
       });
-      if (res.ok) {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         await syncUsersFromServer();
+        setNotification({ type: 'error', message: `No se pudo guardar el usuario: ${data.error || 'Error del servidor'}` });
+        return;
       }
+      await syncUsersFromServer();
     } catch (apiErr) {
-      console.warn('No se pudo sincronizar usuario con el servidor en segundo plano:', apiErr);
+      console.warn('No se pudo guardar el usuario en el servidor:', apiErr);
+      setNotification({ type: 'error', message: 'Error de conexión: el usuario no se guardó en el servidor.' });
+      return;
     }
 
     // Enviar correo si está activado
@@ -749,7 +765,7 @@ function parseUserRecordRole(rol?: unknown, rolDisplay?: unknown): UserRecord['r
                       <label className="block font-semibold text-[#5B403D] mb-1">Contraseña</label>
                       <input
                         type="password"
-                        placeholder="••••••••"
+                        placeholder={editingUserId ? 'Dejar vacío para no cambiar' : 'Mínimo 8 caracteres'}
                         value={contrasena}
                         onChange={(e) => setContrasena(e.target.value)}
                         className="w-full px-3 py-2 bg-white border border-[#8F706C]/40 rounded"

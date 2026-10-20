@@ -1,6 +1,17 @@
 import { NextResponse } from 'next/server';
-import { findServerUser } from '@/lib/serverUserStorage';
-import { INITIAL_REGISTERED_USERS } from '@/lib/users';
+import { findServerUser, saveServerUser, toPublicUser } from '@/lib/serverUserStorage';
+import { verifyPassword } from '@/lib/password';
+import {
+  SESSION_COOKIE,
+  PENDING_2FA_COOKIE,
+  SESSION_MAX_AGE_SECONDS,
+  PENDING_2FA_MAX_AGE_SECONDS,
+  createSessionToken,
+  createPending2faToken,
+  cookieOptions,
+} from '@/lib/session';
+
+const INVALID_CREDENTIALS = 'DNI/usuario o contraseña incorrectos.';
 
 export async function POST(request: Request) {
   try {
@@ -17,67 +28,42 @@ export async function POST(request: Request) {
     const cleanId = String(identifier).trim();
     const cleanPassword = String(password).trim();
 
-    // 1. Buscar en el almacén unificado del servidor (Prisma DB + storage/users.json)
-    let foundUser = await findServerUser(cleanId);
+    const foundUser = await findServerUser(cleanId);
+    const check = await verifyPassword(cleanPassword, foundUser?.contrasena);
 
-    // 2. Si no se encontró en el servidor, verificar usuarios semilla de respaldo
-    if (!foundUser) {
-      const fallback = INITIAL_REGISTERED_USERS.find((u) => {
-        const uDni = (u.dni || '').trim().toLowerCase();
-        const uUser = (u.usuario || '').trim().toLowerCase();
-        const uMail = (u.email || '').trim().toLowerCase();
-        const idLower = cleanId.toLowerCase();
-        return uDni === idLower || uUser === idLower || uMail === idLower;
-      });
-
-      if (fallback) {
-        foundUser = fallback;
-      }
-    }
-
-    // 3. Si no existe en ningún origen de datos
-    if (!foundUser) {
+    // Mismo mensaje para usuario inexistente o contraseña errada (no revelar cuentas válidas)
+    if (!foundUser || !check.valid) {
       return NextResponse.json(
-        {
-          success: false,
-          errorType: 'USER_NOT_FOUND',
-          error: 'El DNI o usuario ingresado no se encuentra registrado en el sistema.',
-        },
-        { status: 404 }
-      );
-    }
-
-    // 4. Validar contraseña
-    const storedPassword = String(foundUser.contrasena || '').trim();
-    if (storedPassword !== cleanPassword) {
-      return NextResponse.json(
-        {
-          success: false,
-          errorType: 'INVALID_PASSWORD',
-          error: 'La contraseña ingresada es incorrecta. Por favor intente nuevamente.',
-        },
+        { success: false, errorType: 'INVALID_CREDENTIALS', error: INVALID_CREDENTIALS },
         { status: 401 }
       );
     }
 
-    // 5. Retornar sesión exitosa
-    return NextResponse.json({
-      success: true,
-      user: {
-        id: foundUser.id,
-        nombre: foundUser.nombre,
-        apellidos: foundUser.apellidos,
-        dni: foundUser.dni,
-        cip: foundUser.cip,
-        email: foundUser.email,
-        telefono: foundUser.telefono,
-        modContrato: foundUser.modContrato,
-        usuario: foundUser.usuario,
-        rol: foundUser.rol,
-        rolDisplay: foundUser.rolDisplay,
-        otpEnabled: foundUser.otpEnabled,
-      },
-    });
+    // Migrar contraseñas antiguas en texto plano al formato con hash
+    if (check.needsRehash) {
+      await saveServerUser({ ...foundUser, contrasena: cleanPassword });
+    }
+
+    const publicUser = toPublicUser(foundUser);
+
+    // Cuenta con 2FA: emitir solo una cookie temporal; la sesión se emite tras verificar el OTP
+    if (foundUser.otpEnabled) {
+      const res = NextResponse.json({ success: true, requiresOtp: true, user: publicUser });
+      res.cookies.set(
+        PENDING_2FA_COOKIE,
+        await createPending2faToken({ uid: foundUser.id, identifier: foundUser.usuario || foundUser.dni }),
+        cookieOptions(PENDING_2FA_MAX_AGE_SECONDS)
+      );
+      return res;
+    }
+
+    const res = NextResponse.json({ success: true, requiresOtp: false, user: publicUser });
+    res.cookies.set(
+      SESSION_COOKIE,
+      await createSessionToken({ uid: foundUser.id, usuario: foundUser.usuario, dni: foundUser.dni, rol: foundUser.rol }),
+      cookieOptions(SESSION_MAX_AGE_SECONDS)
+    );
+    return res;
   } catch (error) {
     console.error('Error en API auth/login:', error);
     return NextResponse.json(

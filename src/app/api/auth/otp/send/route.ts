@@ -2,39 +2,43 @@ import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import { createOtpSession } from '@/lib/otp';
 import { generateOtpEmailHtml } from '@/lib/smtp';
-import { INITIAL_REGISTERED_USERS } from '@/lib/users';
+import { cookies } from 'next/headers';
 import { findServerUser } from '@/lib/serverUserStorage';
+import { SESSION_COOKIE, PENDING_2FA_COOKIE, verifyPending2faToken, verifySessionToken } from '@/lib/session';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { identifier, email, nombre, apellidos, config } = body;
+    const { config } = body;
 
-    if (!identifier) {
+    // Solo se genera OTP para (a) el usuario que acaba de validar su contraseña o
+    // (b) un administrador que envía un código de prueba a otra cuenta.
+    const cookieStore = await cookies();
+    const pending = await verifyPending2faToken(cookieStore.get(PENDING_2FA_COOKIE)?.value);
+    const session = await verifySessionToken(cookieStore.get(SESSION_COOKIE)?.value);
+
+    let cleanId: string;
+    if (pending) {
+      cleanId = pending.identifier;
+    } else if (session?.rol === 'ADMINISTRADOR' && body.identifier) {
+      cleanId = String(body.identifier).trim();
+    } else {
       return NextResponse.json(
-        { success: false, error: 'Debe especificar el identificador de usuario (DNI / Usuario).' },
+        { success: false, expired: true, error: 'La verificación expiró. Vuelva a ingresar sus credenciales.' },
+        { status: 401 }
+      );
+    }
+
+    const found = await findServerUser(cleanId);
+    if (!found || !found.email) {
+      return NextResponse.json(
+        { success: false, error: 'La cuenta no tiene un correo electrónico registrado.' },
         { status: 400 }
       );
     }
-
-    const cleanId = String(identifier).trim();
-    let targetEmail = email;
-    let targetNombre = nombre || 'Usuario';
-    let targetApellidos = apellidos || '';
-
-    // Si no enviaron mail o nombre, buscar en usuarios del servidor o semilla
-    if (!targetEmail) {
-      const found = (await findServerUser(cleanId)) || INITIAL_REGISTERED_USERS.find(
-        (u) => u.dni.toLowerCase() === cleanId.toLowerCase() || u.usuario.toLowerCase() === cleanId.toLowerCase()
-      );
-      if (found) {
-        targetEmail = found.email;
-        targetNombre = found.nombre;
-        targetApellidos = found.apellidos;
-      } else {
-        targetEmail = 'usuario@regionlambayeque.gob.pe';
-      }
-    }
+    const targetEmail = found.email;
+    const targetNombre = found.nombre;
+    const targetApellidos = found.apellidos;
 
     // Crear sesión OTP de 5 minutos
     const otpRecord = createOtpSession({
@@ -95,6 +99,8 @@ export async function POST(request: Request) {
       emailErrorMessage: emailSent ? undefined : emailErrorMessage,
       email: targetEmail,
       expiresAt: otpRecord.expiresAt,
+      // Solo en desarrollo: permite el botón "Autocompletar" de la pantalla de login
+      code: process.env.NODE_ENV !== 'production' ? otpRecord.code : undefined,
       message: emailSent
         ? `Código de verificación OTP despachado exitosamente a ${targetEmail}`
         : `Código de verificación OTP generado para ${targetEmail}.`,

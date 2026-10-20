@@ -1,14 +1,17 @@
 import { NextResponse } from 'next/server';
+import { getRequestSession } from '@/lib/session';
 import { getServerProjects, saveServerProject, saveServerProjectsBatch, deleteServerProject } from '@/lib/serverProjectStorage';
 
 // GET /api/projects - Retorna proyectos sincronizados con la base de datos y filtrados por RBAC
 export async function GET(req: Request) {
   try {
-    const { searchParams } = new URL(req.url);
-    const userDni = searchParams.get('userDni') || undefined;
-    const role = searchParams.get('role') || undefined;
+    // El filtro RBAC usa la identidad de la sesión, nunca parámetros enviados por el cliente
+    const session = getRequestSession(req);
+    if (!session) {
+      return NextResponse.json({ success: false, error: 'Sesión no válida.' }, { status: 401 });
+    }
 
-    const projects = await getServerProjects({ userDni, role });
+    const projects = await getServerProjects({ userDni: session.dni, role: session.rol });
 
     return NextResponse.json({
       success: true,

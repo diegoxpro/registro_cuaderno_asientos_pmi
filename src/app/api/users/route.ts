@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerUsers, saveServerUser } from '@/lib/serverUserStorage';
+import { getServerUsers, saveServerUser, toPublicUser } from '@/lib/serverUserStorage';
 
 // GET /api/users - Retorna la lista consolidada de usuarios registrados
 export async function GET() {
@@ -7,7 +7,7 @@ export async function GET() {
     const users = await getServerUsers();
     return NextResponse.json({
       success: true,
-      users,
+      users: users.map(toPublicUser),
     });
   } catch (error: any) {
     console.error('Error al obtener usuarios en /api/users:', error);
@@ -24,9 +24,10 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { nombre, apellidos, dni, contrasena, email, usuario, rol, rolDisplay, cip, telefono, modContrato, otpEnabled, id } = body;
 
-    if (!nombre || !apellidos || !dni || !contrasena) {
+    // La contraseña es obligatoria solo al crear; al editar, vacía significa "no cambiar"
+    if (!nombre || !apellidos || !dni) {
       return NextResponse.json(
-        { success: false, error: 'Los campos nombre, apellidos, DNI y contraseña son obligatorios.' },
+        { success: false, error: 'Los campos nombre, apellidos y DNI son obligatorios.' },
         { status: 400 }
       );
     }
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       message: 'Usuario guardado exitosamente en el servidor.',
-      user: savedUser,
+      user: toPublicUser(savedUser),
     });
   } catch (error: any) {
     console.error('Error al guardar usuario en /api/users:', error);

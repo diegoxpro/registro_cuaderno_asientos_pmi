@@ -73,7 +73,8 @@ export default function Sidebar({ collapsed: externalCollapsed, onToggleCollapse
     }
   }, [pathname]);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
     if (typeof window !== 'undefined') {
       localStorage.removeItem('user_role');
       localStorage.removeItem('user_dni');

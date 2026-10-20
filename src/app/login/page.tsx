@@ -17,9 +17,11 @@ import {
   Mail, 
   Sparkles
 } from 'lucide-react';
-import { validateLoginCredentials, AppUser } from '@/lib/users';
+import { AppUser } from '@/lib/users';
 import { getSmtpConfig } from '@/lib/smtp';
-import { createOtpSession, saveLocalOtpSession, verifyLocalOtpCode } from '@/lib/otp';
+
+// Datos del usuario que devuelve el servidor (sin contraseña)
+type SessionUser = Omit<AppUser, 'contrasena'>;
 
 export default function LoginPage() {
   const router = useRouter();
@@ -34,7 +36,7 @@ export default function LoginPage() {
 
   // OTP Verification State
   const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
-  const [activeUser, setActiveUser] = useState<AppUser | null>(null);
+  const [activeUser, setActiveUser] = useState<SessionUser | null>(null);
   const [generatedOtpCode, setGeneratedOtpCode] = useState<string>('');
   const [timerSeconds, setTimerSeconds] = useState<number>(300); // 5 minutos (300 s)
   const [resendCooldown, setResendCooldown] = useState<number>(0);
@@ -44,7 +46,7 @@ export default function LoginPage() {
   // Status & Messaging State
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successUser, setSuccessUser] = useState<AppUser | null>(null);
+  const [successUser, setSuccessUser] = useState<SessionUser | null>(null);
 
   // Refs for 6 OTP input boxes
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -79,30 +81,12 @@ export default function LoginPage() {
     }
   }, [step]);
 
-  // Sincronizar usuarios desde el servidor al cargar la pantalla de login
+  // Al llegar al login se cierra cualquier sesión previa (los botones "Salir" apuntan aquí)
   useEffect(() => {
-    fetch('/api/users')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.success && Array.isArray(data.users) && data.users.length > 0) {
-          if (typeof window !== 'undefined') {
-            try {
-              const savedStr = localStorage.getItem('app_registered_users');
-              const localUsers: AppUser[] = savedStr ? JSON.parse(savedStr) : [];
-              const userMap = new Map<string, AppUser>();
-              localUsers.forEach((u) => userMap.set((u.usuario || u.dni || '').toLowerCase(), u));
-              data.users.forEach((u: AppUser) => userMap.set((u.usuario || u.dni || '').toLowerCase(), u));
-              localStorage.setItem('app_registered_users', JSON.stringify(Array.from(userMap.values())));
-            } catch (err) {
-              console.warn('Error al sincronizar usuarios en login:', err);
-            }
-          }
-        }
-      })
-      .catch(() => {});
+    fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
   }, []);
 
-  // Paso 1: Manejar Validación de Credenciales
+  // Paso 1: Manejar Validación de Credenciales (siempre en el servidor)
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -116,120 +100,70 @@ export default function LoginPage() {
     }
 
     try {
-      let validatedUser: AppUser | null = null;
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: dni, password }),
+      });
+      const apiData = await res.json();
 
-      // 1. Intentar primero con el endpoint API auth/login del servidor
-      try {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identifier: dni, password }),
-        });
-        const apiData = await res.json();
-
-        if (res.ok && apiData.success && apiData.user) {
-          validatedUser = apiData.user;
-        } else if (apiData.error) {
-          // Si el servidor dio un error específico de contraseña incorrecta o usuario no registrado,
-          // intentamos también validar con el helper local de respaldo
-          const localResult = validateLoginCredentials(dni, password);
-          if (localResult.success && localResult.user) {
-            validatedUser = localResult.user;
-          } else {
-            setErrorMessage(apiData.error || localResult.message || 'Credenciales inválidas.');
-            setLoading(false);
-            return;
-          }
-        }
-      } catch {
-        // En caso de falla de red, validar contra almacenamiento local
-        const localResult = validateLoginCredentials(dni, password);
-        if (localResult.success && localResult.user) {
-          validatedUser = localResult.user;
-        } else {
-          setErrorMessage(localResult.message || 'Credenciales de acceso incorrectas.');
-          setLoading(false);
-          return;
-        }
+      if (!res.ok || !apiData.success || !apiData.user) {
+        setErrorMessage(apiData.error || 'Credenciales de acceso incorrectas.');
+        setLoading(false);
+        return;
       }
 
-      if (validatedUser) {
-        // Garantizar que el usuario autenticado quede registrado en localStorage para esta sesión
-        if (typeof window !== 'undefined') {
-          try {
-            const savedStr = localStorage.getItem('app_registered_users');
-            let currentList: AppUser[] = [];
-            if (savedStr) {
-              const parsed = JSON.parse(savedStr);
-              if (Array.isArray(parsed)) currentList = parsed;
-            }
-            const exists = currentList.some((u) => u.dni === validatedUser!.dni || u.usuario === validatedUser!.usuario);
-            if (!exists) {
-              currentList.push(validatedUser);
-              localStorage.setItem('app_registered_users', JSON.stringify(currentList));
-            }
-          } catch (e) {
-            console.warn('Error al guardar usuario en localStorage:', e);
-          }
-        }
-
-        // Verificar si la cuenta tiene activo el requerimiento 2FA OTP
-        if (validatedUser.otpEnabled === false) {
-          completeLogin(validatedUser);
-        } else {
-          triggerSendOtp(validatedUser);
-        }
+      if (apiData.requiresOtp) {
+        triggerSendOtp(apiData.user);
+      } else {
+        completeLogin(apiData.user);
       }
     } catch (err) {
       console.error('Error al procesar credenciales:', err);
-      setErrorMessage('Ocurrió un error inesperado al procesar el inicio de sesión.');
+      setErrorMessage('No se pudo conectar con el servidor. Verifique su conexión e intente nuevamente.');
       setLoading(false);
     }
   };
 
-  // Despachar / Generar Código OTP de forma instantánea
-  const triggerSendOtp = (user: AppUser) => {
+  // Solicitar al servidor la generación y envío del código OTP
+  const triggerSendOtp = (user: SessionUser) => {
     setActiveUser(user);
     setOtpDigits(['', '', '', '', '', '']);
+    setGeneratedOtpCode('');
     setTimerSeconds(300);
     setResendCooldown(10); // Reducido a 10s para pruebas y reenvíos rápidos
-
-    // 1. Generar sesión OTP local al instante (0ms de espera en la UI)
-    const session = createOtpSession({
-      userId: user.id,
-      identifier: user.usuario || user.dni,
-      email: user.email,
-    });
-    saveLocalOtpSession(session);
-    setGeneratedOtpCode(session.code);
     setOtpSentEmail(user.email);
-
-    // Transición inmediata a la vista OTP
     setLoading(false);
     setStep('OTP');
 
-    // 2. Ejecutar despacho de correo SMTP en segundo plano de manera no bloqueante
-    const smtpConfig = getSmtpConfig();
     fetch('/api/auth/otp/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        identifier: user.usuario || user.dni,
-        email: user.email,
-        nombre: user.nombre,
-        apellidos: user.apellidos,
-        config: smtpConfig,
-      }),
+      body: JSON.stringify({ config: getSmtpConfig() }),
     })
       .then((res) => res.json())
       .then((data) => {
-        if (data.success && data.code) {
-          setGeneratedOtpCode(data.code);
+        if (data.success) {
+          if (data.email) setOtpSentEmail(data.email);
+          // Solo llega en modo desarrollo (botón "Autocompletar")
+          if (data.code) setGeneratedOtpCode(data.code);
+        } else if (data.expired) {
+          backToCredentials(data.error);
+        } else {
+          setErrorMessage(data.error || 'No se pudo generar el código OTP.');
         }
       })
-      .catch((e) => {
-        console.warn('Despacho de correo OTP en segundo plano fallido o diferido:', e);
+      .catch(() => {
+        setErrorMessage('No se pudo solicitar el código OTP. Intente reenviarlo.');
       });
+  };
+
+  const backToCredentials = (message?: string) => {
+    setStep('CREDENTIALS');
+    setActiveUser(null);
+    setGeneratedOtpCode('');
+    setOtpDigits(['', '', '', '', '', '']);
+    setErrorMessage(message || null);
   };
 
   // Paso 2: Manejar Entrada y Navegación de los 6 Dígitos OTP
@@ -300,39 +234,25 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // 1. Intentar validar en API backend
       const res = await fetch('/api/auth/otp/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          identifier: activeUser.usuario || activeUser.dni,
-          code: fullCode,
-        }),
+        body: JSON.stringify({ code: fullCode }),
       });
-
       const apiData = await res.json();
 
       if (res.ok && apiData.success) {
-        completeLogin(activeUser);
-        return;
-      }
-
-      // 2. Si falla la API, intentar validación local de respaldo
-      const localVerify = verifyLocalOtpCode(activeUser.usuario || activeUser.dni, fullCode);
-      if (localVerify.success || fullCode === generatedOtpCode) {
-        completeLogin(activeUser);
+        completeLogin(apiData.user || activeUser);
+      } else if (apiData.expired && res.status === 401) {
+        setLoading(false);
+        backToCredentials(apiData.error);
       } else {
-        setErrorMessage(apiData.error || localVerify.message || 'Código OTP incorrecto o ha expirado.');
+        setErrorMessage(apiData.error || 'Código OTP incorrecto o ha expirado.');
         setLoading(false);
       }
     } catch {
-      // Fallback a validación con código generado localmente
-      if (fullCode === generatedOtpCode) {
-        completeLogin(activeUser);
-      } else {
-        setErrorMessage('El código OTP ingresado es incorrecto. Intente nuevamente.');
-        setLoading(false);
-      }
+      setErrorMessage('No se pudo conectar con el servidor para verificar el código.');
+      setLoading(false);
     }
   };
 
@@ -347,7 +267,7 @@ export default function LoginPage() {
 
 
   // Finalizar Login y Guardar Sesión
-  const completeLogin = (user: AppUser) => {
+  const completeLogin = (user: SessionUser) => {
     setSuccessUser(user);
     setLoading(false);
 

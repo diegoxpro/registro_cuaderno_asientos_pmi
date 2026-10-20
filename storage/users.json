@@ -9,7 +9,7 @@
     "telefono": "912345678",
     "modContrato": "Nombrado 276",
     "usuario": "admin",
-    "contrasena": "admin123",
+    "contrasena": "scrypt$Kq9OK7/odb0zCgIJRhBzZA==$d+iUyWlgWvzCh2LWis+FaeAhJyI7m3bAYxHgMYMXPKEE+TLmZPhdH0+IlfDLkm0kvEVs/JOpr9YbR9a9s7q6Kw==",
     "rol": "ADMINISTRADOR",
     "rolDisplay": "Administrador",
     "otpEnabled": false
@@ -24,7 +24,7 @@
     "telefono": "948322461",
     "modContrato": "Locación de Servicios",
     "usuario": "jleon",
-    "contrasena": "Jleon26",
+    "contrasena": "scrypt$Wtjlf86+PQcIyhL1Hyakjg==$/m1spLpZCtySo/mN4w5PpG51AhRflhdlRLmlogOfKWjTh5r+1lEV0FtngN1m2CsJKEM6qU9VDnBtb3YMhRNMBQ==",
     "rol": "ADMINISTRADOR",
     "rolDisplay": "Administrador",
     "otpEnabled": false
@@ -39,7 +39,7 @@
     "telefono": "979895241",
     "modContrato": "Terceros",
     "usuario": "rchapoñan",
-    "contrasena": "Rchapoñan26",
+    "contrasena": "scrypt$y0pkMCbn5vqSVoNKLepr2Q==$0WOQX49fFfXRbEY3qG7R1FplPueo6uS7hWS8dt5rHWe4AD55Wy8MLdzktlZimwpNNZdZ++YdKypQSSZ/njcYMQ==",
     "rol": "SUPERVISOR_DE_PROYECTO",
     "rolDisplay": "Supervisor de Proyecto",
     "otpEnabled": false
@@ -54,7 +54,7 @@
     "telefono": "980673279",
     "modContrato": "Terceros",
     "usuario": "msantos",
-    "contrasena": "Msantos26",
+    "contrasena": "scrypt$DoyKVhlxT0VRwW7WM+/dyw==$fLbHynT6reHkjv0AGMDWZp15AEDUaW0U7hq6hjxg0MRCIT593cDkf0inyG4gtLXgC5LcpwQkVyRHvbc4xmWPnw==",
     "rol": "JEFE_DE_PROYECTO",
     "rolDisplay": "Jefe de Proyecto",
     "otpEnabled": false

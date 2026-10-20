@@ -2,6 +2,16 @@ import fs from 'fs';
 import path from 'path';
 import { prisma } from '@/lib/prisma';
 import { AppUser, INITIAL_REGISTERED_USERS } from '@/lib/users';
+import { hashPassword, isPasswordHashed } from '@/lib/password';
+
+export type PublicUser = Omit<AppUser, 'contrasena'>;
+
+// Datos del usuario aptos para enviar al cliente (nunca incluye la contraseña)
+export function toPublicUser(user: AppUser): PublicUser {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { contrasena, ...rest } = user;
+  return rest;
+}
 
 const STORAGE_DIR = path.join(process.cwd(), 'storage');
 const USERS_FILE = path.join(STORAGE_DIR, 'users.json');
@@ -231,12 +241,13 @@ export async function findServerUser(identifier: string): Promise<AppUser | null
 }
 
 // Guardar o actualizar un usuario en el servidor
-export async function saveServerUser(userData: Partial<AppUser> & { usuario?: string; dni: string; contrasena: string }): Promise<AppUser> {
+// Si `contrasena` llega vacía al editar, se conserva la contraseña actual.
+export async function saveServerUser(userData: Partial<AppUser> & { usuario?: string; dni: string; contrasena?: string }): Promise<AppUser> {
   const allUsers = await getServerUsers();
   
   const cleanDni = String(userData.dni).trim();
   const cleanUsuario = fixUtf8Mojibake(String(userData.usuario || userData.dni).trim());
-  const cleanPassword = String(userData.contrasena).trim();
+  const typedPassword = String(userData.contrasena || '').trim();
   const rolNorm = normalizeRole(userData.rol);
   const rolDisp = userData.rolDisplay || roleToDisplay(rolNorm);
 
@@ -248,6 +259,16 @@ export async function saveServerUser(userData: Partial<AppUser> & { usuario?: st
     );
   });
 
+  let storedPassword: string;
+  if (typedPassword) {
+    storedPassword = await hashPassword(typedPassword);
+  } else if (existingIdx >= 0 && allUsers[existingIdx].contrasena) {
+    const current = allUsers[existingIdx].contrasena;
+    storedPassword = isPasswordHashed(current) ? current : await hashPassword(current);
+  } else {
+    throw new Error('La contraseña es obligatoria para registrar un nuevo usuario.');
+  }
+
   const fullUser: AppUser = {
     id: userData.id || (existingIdx >= 0 ? allUsers[existingIdx].id : `u-${Date.now()}`),
     nombre: fixUtf8Mojibake(String(userData.nombre || '').trim()),
@@ -258,7 +279,7 @@ export async function saveServerUser(userData: Partial<AppUser> & { usuario?: st
     telefono: String(userData.telefono || '').trim(),
     modContrato: userData.modContrato ? fixUtf8Mojibake(String(userData.modContrato).trim()) : undefined,
     usuario: cleanUsuario,
-    contrasena: cleanPassword,
+    contrasena: storedPassword,
     rol: rolNorm,
     rolDisplay: rolDisp,
     otpEnabled: userData.otpEnabled !== undefined ? Boolean(userData.otpEnabled) : false,

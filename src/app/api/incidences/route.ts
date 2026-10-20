@@ -5,6 +5,21 @@ import {
   saveServerIncidencesBatch,
   deleteServerIncidence,
 } from '@/lib/serverIncidenceStorage';
+import { getServerProjects } from '@/lib/serverProjectStorage';
+import { getRequestSession } from '@/lib/session';
+
+// Identificadores (id y CUI) de los proyectos visibles para el usuario de la sesión
+async function getAccessibleProjectKeys(req: Request): Promise<Set<string> | null> {
+  const session = getRequestSession(req);
+  if (!session) return null;
+  const projects = await getServerProjects({ userDni: session.dni, role: session.rol });
+  const keys = new Set<string>();
+  for (const p of projects) {
+    if (p.id) keys.add(String(p.id).toLowerCase().trim());
+    if (p.cui) keys.add(String(p.cui).toLowerCase().trim());
+  }
+  return keys;
+}
 
 // GET /api/incidences - Obtener asientos sincronizados con base de datos
 export async function GET(req: Request) {
@@ -12,7 +27,20 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const projectId = searchParams.get('projectId') || undefined;
 
-    const incidences = await getServerIncidences(projectId);
+    const allowed = await getAccessibleProjectKeys(req);
+    if (!allowed) {
+      return NextResponse.json({ success: false, error: 'Sesión no válida.' }, { status: 401 });
+    }
+    if (projectId && !allowed.has(projectId.toLowerCase().trim())) {
+      return NextResponse.json(
+        { success: false, error: 'No tiene acceso a este proyecto.' },
+        { status: 403 }
+      );
+    }
+
+    const incidences = (await getServerIncidences(projectId)).filter((inc) =>
+      allowed.has(String(inc.proyectoId || '').toLowerCase().trim())
+    );
 
     return NextResponse.json({
       success: true,

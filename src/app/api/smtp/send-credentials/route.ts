@@ -39,7 +39,7 @@ export async function POST(request: Request) {
       nombre: user.nombre,
       apellidos: user.apellidos,
       usuario: user.usuario || user.dni,
-      contrasena: user.contrasena || '123456',
+      contrasena: user.contrasena || '(sin cambios: use su contraseña actual)',
       rol: user.rol || 'Residente',
       email: user.email,
       dni: user.dni,
