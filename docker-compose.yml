@@ -18,6 +18,8 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
       - SMTP_FROM=${SMTP_FROM:-no-reply@regionlambayeque.gob.pe}
+      - SESSION_SECRET=${SESSION_SECRET:?Defina SESSION_SECRET en el archivo .env (minimo 32 caracteres)}
+      - COOKIE_SECURE=${COOKIE_SECURE:-true}
     depends_on:
       - db
     restart: always

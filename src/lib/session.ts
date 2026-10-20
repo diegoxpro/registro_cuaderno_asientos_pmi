@@ -116,7 +116,8 @@ export function cookieOptions(maxAge: number) {
   return {
     httpOnly: true,
     sameSite: 'lax' as const,
-    secure: process.env.NODE_ENV === 'production',
+    // COOKIE_SECURE=false permite servir por http:// (sin HTTPS); por defecto, Secure en producción
+    secure: process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : process.env.NODE_ENV === 'production',
     path: '/',
     maxAge,
   };
